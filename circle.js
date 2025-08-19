@@ -7,6 +7,7 @@ class MovingCircleApp {
     this.canSwitchBottom = false;
     this.animationId = 0;
     this.keys = {};
+    this.skipTaskbar = true;
     this.isSwitchingMonitor = false; // Initialize the switching flag
     this.isInBounceRecovery = false; // Initialize the bounce recovery flag
     this.setupHTML();
