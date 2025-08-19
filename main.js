@@ -1,8 +1,51 @@
-const { app, BrowserWindow, screen, ipcMain } = require("electron");
+const { app, BrowserWindow, screen, ipcMain, Tray, Menu } = require("electron");
+
 const path = require("path");
 
 let mainWindow = null;
+let tray = null;
 let currentDisplayIndex = 0;
+function createTray() {
+  tray = new Tray(path.join(__dirname, "public/logo192.png"));
+  console.log(`Creating Tray`);
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label:
+        mainWindow && mainWindow.isVisible() ? "Hide Overlay" : "Show Overlay",
+      type: "checkbox",
+      checked: true,
+      click: () => {
+        if (!mainWindow) return;
+        if (mainWindow.isVisible()) {
+          mainWindow.hide();
+        } else {
+          mainWindow.show();
+        }
+      },
+    },
+    { type: "separator" },
+    {
+      label: "Quit",
+      click: () => {
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setToolTip("My Overlay App");
+  tray.setContextMenu(contextMenu);
+
+  // Optional: click tray icon to toggle overlay
+  tray.on("click", () => {
+    if (!mainWindow) return;
+    if (mainWindow.isVisible()) {
+      mainWindow.hide();
+    } else {
+      mainWindow.show();
+    }
+  });
+}
 
 function createWindow() {
   // Get all displays
@@ -13,7 +56,6 @@ function createWindow() {
   // Start with the first display
   createWindowOnDisplay(0);
 }
-
 function createWindowOnDisplay(displayIndex) {
   const displays = screen.getAllDisplays();
   if (!displays[displayIndex]) return;
@@ -25,31 +67,19 @@ function createWindowOnDisplay(displayIndex) {
     `Creating window on display ${displayIndex}: ${width}x${height} at (${x}, ${y})`
   );
 
-  // Make window fill the entire monitor
-  const windowWidth = width;
-  const windowHeight = height;
-
   if (mainWindow) {
-    // Update existing window
-
-    mainWindow.setBounds({
-      x: x,
-      y: y,
-      width: windowWidth,
-      height: windowHeight,
-    });
+    mainWindow.setBounds({ x, y, width, height });
   } else {
-    // Create new window
     mainWindow = new BrowserWindow({
-      width: windowWidth,
-      height: windowHeight,
-      x: x,
-      y: y,
+      width,
+      height,
+      x,
+      y,
       transparent: true,
       frame: false,
       resizable: false,
       alwaysOnTop: true,
-      clickThrough: true,
+      skipTaskbar: true, // 👈 Hides from taskbar
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
@@ -60,33 +90,24 @@ function createWindowOnDisplay(displayIndex) {
       show: false,
     });
 
-    // Load your index.html file
     mainWindow
       .loadFile(path.join(__dirname, "index.html"))
       .then(() => console.log("index.html loaded"))
       .catch((err) => console.error("Failed to load index.html:", err));
 
-    // Show window when ready
     mainWindow.once("ready-to-show", () => {
       mainWindow.show();
-      // Make the entire window ignore mouse events
-      //mainWindow.setIgnoreMouseEvents(true, { forward: true });
+
+      // 👇 This makes the window 100% click-through
+      mainWindow.setIgnoreMouseEvents(true, { forward: true });
     });
 
-    // Handle window closed
     mainWindow.on("closed", () => {
-      // Dereference the window object
       mainWindow = null;
     });
   }
 
   currentDisplayIndex = displayIndex;
-
-  // Log the actual window bounds
-  const bounds = mainWindow.getBounds();
-  console.log(
-    `Window now on display ${displayIndex}: x=${bounds.x}, y=${bounds.y}, width=${bounds.width}, height=${bounds.height}`
-  );
 }
 
 // Function to move window between displays
@@ -94,7 +115,6 @@ function moveToDisplay(displayIndex) {
   const displays = screen.getAllDisplays();
   if (!mainWindow || !displays[displayIndex]) return;
 
-  console.log(`Switching to display ${displayIndex}`);
   createWindowOnDisplay(displayIndex);
 }
 
@@ -105,11 +125,6 @@ function cycleDisplay() {
   moveToDisplay(nextIndex);
 }
 
-// Function to switch to next display (called when circle hits border)
-function switchToNextDisplay() {
-  cycleDisplay();
-}
-
 // Function to switch to monitor in specific direction
 function switchToMonitorInDirection(direction) {
   const displays = screen.getAllDisplays();
@@ -118,11 +133,6 @@ function switchToMonitorInDirection(direction) {
   // Get current display bounds
   const currentDisplay = displays[currentDisplayIndex];
   const currentBounds = currentDisplay.bounds;
-
-  console.log(
-    `Current display: ${currentDisplayIndex} at (${currentBounds.x}, ${currentBounds.y})`
-  );
-  console.log(`Switching monitor due to ${direction} wall touch`);
 
   // Find the monitor in the specified direction
   let targetDisplayIndex = -1;
@@ -156,40 +166,34 @@ function switchToMonitorInDirection(direction) {
 
     if (isInDirection) {
       targetDisplayIndex = i;
-      console.log(
-        `Found ${direction} monitor: ${i} at (${targetBounds.x}, ${targetBounds.y})`
-      );
       break;
     }
   }
 
   // If no monitor found in that direction, tell the renderer to bounce back
   if (targetDisplayIndex === -1) {
-    console.log(`No ${direction} monitor found - should bounce back`);
     // Send message to renderer to bounce instead of switch
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("bounce-back", direction);
     }
   } else {
-    console.log(`Switching to ${direction} monitor: ${targetDisplayIndex}`);
     moveToDisplay(targetDisplayIndex);
   }
 }
 
 // Set up IPC listeners
 ipcMain.on("switch-monitor", () => {
-  console.log("Received switch-monitor request from renderer");
   cycleDisplay();
 });
 
 // New IPC listener for directional switching
 ipcMain.on("switch-monitor-direction", (event, direction) => {
-  console.log(`Received directional switch request: ${direction}`);
   switchToMonitorInDirection(direction);
 });
 
 // Create window when Electron is ready
 app.whenReady().then(createWindow);
+app.whenReady().then(createTray);
 
 // Quit when all windows are closed
 app.on("window-all-closed", () => {
@@ -203,6 +207,7 @@ app.on("activate", () => {
   // On macOS, re-create window when dock icon is clicked
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
+    createTray();
   }
 });
 
