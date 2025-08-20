@@ -134,6 +134,32 @@ class MovingCircleApp {
     }
   }
 
+  moveCircleTo(x, y, speed = 5) {
+    // Move the circle smoothly toward (x, y) at a given speed (pixels per frame)
+    // If already close enough, snap to target
+    const dx = x - this.circle.x;
+    const dy = y - this.circle.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance < speed) {
+      this.circle.x = x;
+      this.circle.y = y;
+      this.circle.dx = 0;
+      this.circle.dy = 0;
+      return;
+    }
+
+    // Calculate normalized direction
+    const dirX = dx / distance;
+    const dirY = dy / distance;
+
+    // Set velocity toward target
+    this.circle.dx = dirX * speed;
+    this.circle.dy = dirY * speed;
+
+    // Optionally, you could set a flag to stop movement when close enough in your animation loop
+  }
+
   moveCircle() {
     // Manual movement with WASD
     const speed = 2;

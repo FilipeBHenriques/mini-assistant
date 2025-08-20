@@ -10,14 +10,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   switchMonitor: () => {
     ipcRenderer.send("switch-monitor");
   },
-  // Switch to monitor in specific direction
-  switchMonitorDirection: (direction) => {
-    ipcRenderer.send("switch-monitor-direction", direction);
-  },
   // Listen for bounce-back messages
   onBounceBack: (callback) => {
     ipcRenderer.on("bounce-back", (event, direction) => {
       callback(direction);
     });
   },
+
+  getProcesses: () => ipcRenderer.invoke("get-process-list"),
 });
