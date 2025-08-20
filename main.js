@@ -138,7 +138,7 @@ app.whenReady().then(() => {
   (async () => {
     try {
       const processes = await fetchWindows();
-      console.log("Running processes (first run):", processes.join(", "));
+      console.log("Open windows:", JSON.stringify(processes, null, 2));
     } catch (err) {
       console.error("Failed to get processes:", err);
     }
@@ -147,7 +147,7 @@ app.whenReady().then(() => {
   setInterval(async () => {
     try {
       const windows = await fetchWindows();
-      console.log("Open windows:", windows.join(", "));
+      console.log("Open windows:", JSON.stringify(windows, null, 2));
     } catch (err) {
       console.error("Failed to get open windows:", err);
     }
