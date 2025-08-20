@@ -1,4 +1,5 @@
 const { app, BrowserWindow, screen, ipcMain, Tray, Menu } = require("electron");
+const { fetchWindows } = require("./utils.js");
 
 const path = require("path");
 
@@ -125,75 +126,37 @@ function cycleDisplay() {
   moveToDisplay(nextIndex);
 }
 
-// Function to switch to monitor in specific direction
-function switchToMonitorInDirection(direction) {
-  const displays = screen.getAllDisplays();
-  if (displays.length <= 1) return;
-
-  // Get current display bounds
-  const currentDisplay = displays[currentDisplayIndex];
-  const currentBounds = currentDisplay.bounds;
-
-  // Find the monitor in the specified direction
-  let targetDisplayIndex = -1;
-
-  for (let i = 0; i < displays.length; i++) {
-    if (i === currentDisplayIndex) continue;
-
-    const targetDisplay = displays[i];
-    const targetBounds = targetDisplay.bounds;
-
-    let isInDirection = false;
-
-    switch (direction) {
-      case "right":
-        // Target monitor should be to the right (higher X coordinate)
-        isInDirection = targetBounds.x > currentBounds.x;
-        break;
-      case "left":
-        // Target monitor should be to the left (lower X coordinate)
-        isInDirection = targetBounds.x < currentBounds.x;
-        break;
-      case "bottom":
-        // Target monitor should be below (higher Y coordinate)
-        isInDirection = targetBounds.y > currentBounds.y;
-        break;
-      case "top":
-        // Target monitor should be above (lower Y coordinate)
-        isInDirection = targetBounds.y < currentBounds.y;
-        break;
-    }
-
-    if (isInDirection) {
-      targetDisplayIndex = i;
-      break;
-    }
-  }
-
-  // If no monitor found in that direction, tell the renderer to bounce back
-  if (targetDisplayIndex === -1) {
-    // Send message to renderer to bounce instead of switch
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("bounce-back", direction);
-    }
-  } else {
-    moveToDisplay(targetDisplayIndex);
-  }
-}
-
 // Set up IPC listeners
 ipcMain.on("switch-monitor", () => {
   cycleDisplay();
 });
+app.whenReady().then(() => {
+  createWindow();
+  createTray();
 
-// New IPC listener for directional switching
-ipcMain.on("switch-monitor-direction", (event, direction) => {
-  switchToMonitorInDirection(direction);
+  // ✅ Immediately poll once
+  (async () => {
+    try {
+      const processes = await fetchWindows();
+      console.log("Running processes (first run):", processes.join(", "));
+    } catch (err) {
+      console.error("Failed to get processes:", err);
+    }
+  })();
+
+  setInterval(async () => {
+    try {
+      const windows = await fetchWindows();
+      console.log("Open windows:", windows.join(", "));
+    } catch (err) {
+      console.error("Failed to get open windows:", err);
+    }
+  }, 30000); // every 30 seconds
+
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
 });
-
-// Create window when Electron is ready
-app.whenReady().then(createWindow);
-app.whenReady().then(createTray);
 
 // Quit when all windows are closed
 app.on("window-all-closed", () => {
