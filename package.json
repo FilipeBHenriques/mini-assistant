@@ -4,31 +4,29 @@
   "main": "main.js",
   "homepage": "./",
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject",
-    "electron": "electron .",
-    "electron-dev": "concurrently \"yarn start\" \"wait-on http://localhost:3000 && electron .\"",
-    "electron-pack": "yarn build && electron ."
+    "dev:renderer": "vite",
+    "dev:main": "wait-on http://localhost:5173 && electron .",
+    "dev": "concurrently -k \"yarn dev:renderer\" \"yarn dev:main\"",
+    "build": "vite build",
+    "start": "electron ."
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^24.3.0",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
-    "concurrently": "^8.2.2",
+    "concurrently": "^9.2.0",
     "electron": "^37.3.1",
     "electron-rebuild": "^3.2.9",
     "typescript": "^5.9.2",
-    "wait-on": "^7.2.0"
+    "vite": "^7.1.3",
+    "wait-on": "^8.0.4"
   },
   "dependencies": {
     "get-windows": "^9.2.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "react-scripts": "5.0.1",
-    "web-vitals": "^5.1.0"
+    "three": "^0.179.1"
   },
   "browserslist": {
     "production": [

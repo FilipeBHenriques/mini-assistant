@@ -10,12 +10,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   switchMonitor: () => {
     ipcRenderer.send("switch-monitor");
   },
-  // Listen for bounce-back messages
-  onBounceBack: (callback) => {
-    ipcRenderer.on("bounce-back", (event, direction) => {
-      callback(direction);
-    });
-  },
 
   getProcesses: () => ipcRenderer.invoke("get-process-list"),
 });

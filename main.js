@@ -3,7 +3,9 @@ const { fetchWindows } = require("./utils.js");
 
 const path = require("path");
 
-let mainWindow = null;
+const isDev = !app.isPackaged;
+
+let mainWindow;
 let tray = null;
 let currentDisplayIndex = 0;
 function createTray() {
@@ -47,7 +49,6 @@ function createTray() {
     }
   });
 }
-
 function createWindow() {
   // Get all displays
   const displays = screen.getAllDisplays();
@@ -80,7 +81,7 @@ function createWindowOnDisplay(displayIndex) {
       frame: false,
       resizable: false,
       alwaysOnTop: true,
-      skipTaskbar: true, // 👈 Hides from taskbar
+      skipTaskbar: true,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
@@ -91,15 +92,16 @@ function createWindowOnDisplay(displayIndex) {
       show: false,
     });
 
-    mainWindow
-      .loadFile(path.join(__dirname, "index.html"))
-      .then(() => console.log("index.html loaded"))
-      .catch((err) => console.error("Failed to load index.html:", err));
+    if (isDev) {
+      mainWindow.loadURL("http://localhost:5173"); // Vite dev server
+      mainWindow.webContents.openDevTools({ mode: "detach" });
+    } else {
+      mainWindow.loadFile(path.join(__dirname, "dist/index.html"));
+    }
 
     mainWindow.once("ready-to-show", () => {
       mainWindow.show();
-
-      // 👇 This makes the window 100% click-through
+      // Click-through overlay:
       mainWindow.setIgnoreMouseEvents(true, { forward: true });
     });
 

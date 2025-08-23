@@ -2,58 +2,41 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Mini Assistant</title>
+    <title>Ghost Overlay</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <style>
       html,
       body {
         margin: 0;
-        background: transparent;
-        overflow: hidden;
-        pointer-events: none;
         width: 100%;
         height: 100%;
+        overflow: hidden;
+        background: transparent;
         position: 0;
         border: 3px solid red;
         box-sizing: border-box;
       }
-      #circle {
-        width: 80px;
-        height: 80px;
-        border-radius: 50%;
-        background-color: blue;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 36px;
-        color: white;
-        user-select: none;
-        position: fixed;
-        transition: all 0.1s ease;
-        pointer-events: none;
-        z-index: -1;
-        mix-blend-mode: multiply;
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
       }
-      #debug-info {
+      #debug {
         position: fixed;
         top: 10px;
         left: 10px;
-        background: rgba(0, 0, 0, 0.8);
-        color: white;
-        padding: 10px;
-        font-family: monospace;
-        font-size: 12px;
-        pointer-events: none;
-        z-index: 1000;
+        background: rgba(0, 0, 0, 0.6);
+        color: #fff;
+        font: 12px monospace;
+        padding: 6px 8px;
+        border-radius: 6px;
+        z-index: 10;
       }
     </style>
   </head>
   <body>
-    <div id="debug-info">
-      <div>Window Size: <span id="window-size">Loading...</span></div>
-      <div>Circle Position: <span id="circle-pos">Loading...</span></div>
-      <div>Circle Bounds: <span id="circle-bounds">Loading...</span></div>
-    </div>
-    <div id="circle">😀</div>
-    <script src="circle.js"></script>
+    <div id="debug">pos: <span id="pos">0,0</span></div>
+    <canvas id="ghost-canvas"></canvas>
+    <script type="module" src="/src/ghost.js"></script>
   </body>
 </html>
