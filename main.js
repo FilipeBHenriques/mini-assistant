@@ -127,6 +127,39 @@ function cycleDisplay() {
   const nextIndex = (currentDisplayIndex + 1) % displays.length;
   moveToDisplay(nextIndex);
 }
+ipcMain.on("minimize-external-window", (event, windowId) => {
+  console.log("[minimize-external-window] called with windowId:", windowId);
+  const windows = require("node-window-manager").windowManager.getWindows();
+  console.log(
+    "[minimize-external-window] Available windows:",
+    windows.map((w) => ({ id: w.id, path: w.path, title: w.getTitle() }))
+  );
+  const target = windows.find((w) => w.path.includes(windowId));
+  if (target) {
+    console.log("[minimize-external-window] Minimizing window:", {
+      id: target.id,
+      path: target.path,
+      title: target.getTitle(),
+    });
+    target.minimize(); // ✅ works here
+  } else {
+    console.log(
+      "[minimize-external-window] No matching window found for windowId:",
+      windowId
+    );
+  }
+});
+
+ipcMain.on(
+  "move-external-window",
+  (event, { windowId, x, y, width, height }) => {
+    const windows = require("node-window-manager").windowManager.getWindows();
+    const target = windows.find((w) => w.id === windowId);
+    if (target) {
+      target.setBounds({ x, y, width, height }); // ✅ works here
+    }
+  }
+);
 
 // Set up IPC listeners
 ipcMain.on("switch-monitor", () => {
@@ -141,6 +174,12 @@ app.whenReady().then(() => {
     try {
       const processes = await fetchWindows();
       console.log("Open windows:", JSON.stringify(processes, null, 2));
+      // Update NbWindows in renderer debug panel
+      if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.executeJavaScript(
+          `document.getElementById("NbWindows").textContent = "${processes.length}";`
+        );
+      }
     } catch (err) {
       console.error("Failed to get processes:", err);
     }
