@@ -93,6 +93,12 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     switchMonitor();
   }
+  if (e.key.toLowerCase() === "m") {
+    console.log("pressing m");
+    // You’ll need the windowId from fetchWindows() results
+    const targetWindowId = "msedge.exe"; // Example ID
+    window.electronAPI.minimizeExternal(targetWindowId);
+  }
 });
 document.addEventListener("keyup", (e) => (keys[e.key.toLowerCase()] = false));
 

@@ -35,7 +35,23 @@
     </style>
   </head>
   <body>
-    <div id="debug">pos: <span id="pos">0,0</span></div>
+    <div id="debug">
+      pos: <span id="pos">0,0</span><br />
+      windows: <span id="NbWindows">0</span><br />
+      <b>Controls:</b><br />
+      <ul
+        style="
+          margin: 4px 0 0 16px;
+          padding: 0;
+          font-size: 12px;
+          line-height: 1.4;
+        "
+      >
+        <li><b>Space</b>: Switch monitor</li>
+        <li><b>M</b>: Minimize active window</li>
+        <li><b>Arrows</b> or <b>WASD</b>: Move ghost</li>
+      </ul>
+    </div>
     <canvas id="ghost-canvas"></canvas>
     <script type="module" src="/src/ghost.js"></script>
   </body>
