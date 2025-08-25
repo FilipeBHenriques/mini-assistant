@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getProcesses: () => ipcRenderer.invoke("get-process-list"),
   minimizeExternal: (windowId) =>
     ipcRenderer.send("minimize-external-window", windowId),
+  maximizeExternal: (windowId) =>
+    ipcRenderer.send("maximize-external-window", windowId),
   moveExternal: (windowId, x, y, width, height) =>
     ipcRenderer.send("move-external-window", { windowId, x, y, width, height }),
 });

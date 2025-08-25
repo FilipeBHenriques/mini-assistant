@@ -1,5 +1,10 @@
 const { app, BrowserWindow, screen, ipcMain, Tray, Menu } = require("electron");
-const { fetchWindows } = require("./utils.js");
+const {
+  fetchWindows,
+  minimizeWindowbyId,
+  maximizeWindowbyId,
+  smoothMoveWindowById,
+} = require("./utils.js");
 
 const path = require("path");
 
@@ -128,38 +133,15 @@ function cycleDisplay() {
   moveToDisplay(nextIndex);
 }
 ipcMain.on("minimize-external-window", (event, windowId) => {
-  console.log("[minimize-external-window] called with windowId:", windowId);
-  const windows = require("node-window-manager").windowManager.getWindows();
-  console.log(
-    "[minimize-external-window] Available windows:",
-    windows.map((w) => ({ id: w.id, path: w.path, title: w.getTitle() }))
-  );
-  const target = windows.find((w) => w.path.includes(windowId));
-  if (target) {
-    console.log("[minimize-external-window] Minimizing window:", {
-      id: target.id,
-      path: target.path,
-      title: target.getTitle(),
-    });
-    target.minimize(); // ✅ works here
-  } else {
-    console.log(
-      "[minimize-external-window] No matching window found for windowId:",
-      windowId
-    );
-  }
+  minimizeWindowbyId(windowId);
+});
+ipcMain.on("maximize-external-window", (event, windowId) => {
+  maximizeWindowbyId(windowId);
 });
 
-ipcMain.on(
-  "move-external-window",
-  (event, { windowId, x, y, width, height }) => {
-    const windows = require("node-window-manager").windowManager.getWindows();
-    const target = windows.find((w) => w.id === windowId);
-    if (target) {
-      target.setBounds({ x, y, width, height }); // ✅ works here
-    }
-  }
-);
+ipcMain.on("move-external-window", (event, { windowId, x, y }) => {
+  smoothMoveWindowById(windowId, x, y);
+});
 
 // Set up IPC listeners
 ipcMain.on("switch-monitor", () => {
