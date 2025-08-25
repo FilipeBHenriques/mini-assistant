@@ -97,9 +97,52 @@ document.addEventListener("keydown", (e) => {
     console.log("pressing m");
     // You’ll need the windowId from fetchWindows() results
     const targetWindowId = "msedge.exe"; // Example ID
-    window.electronAPI.minimizeExternal(targetWindowId);
+    if (window.electronAPI && window.electronAPI.minimizeExternal) {
+      window.electronAPI.minimizeExternal(targetWindowId);
+    } else {
+      console.log("minimizeExternal not implemented in electronAPI");
+    }
+  }
+  if (e.key.toLowerCase() === "n") {
+    console.log("pressing n");
+    // You’ll need the windowId from fetchWindows() results
+    const targetWindowId = "msedge.exe"; // Example ID
+    if (window.electronAPI.maximizeExternal) {
+      window.electronAPI.maximizeExternal(targetWindowId);
+    } else {
+      console.log("maximizeExternal not implemented in electronAPI");
+    }
+  }
+
+  const targetWindowId = "msedge.exe";
+
+  const moveAmount = 50;
+  if (["j", "k", "l", "i"].includes(e.key.toLowerCase())) {
+    console.log("movement key pressed ");
+    // Fetch current window position (optional: you could cache this)
+    let x = 0;
+    let y = 0;
+    if (window.electronAPI.moveExternal) {
+      console.log("moveecternla exists");
+      switch (e.key.toLowerCase()) {
+        case "j":
+          x = moveAmount;
+          break;
+        case "l":
+          x = moveAmount;
+          break;
+        case "i":
+          y = moveAmount;
+          break;
+        case "k":
+          y = moveAmount;
+          break;
+      }
+      window.electronAPI.moveExternal(targetWindowId, x, y);
+    }
   }
 });
+
 document.addEventListener("keyup", (e) => (keys[e.key.toLowerCase()] = false));
 
 // Ghost movement velocity
