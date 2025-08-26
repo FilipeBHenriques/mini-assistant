@@ -139,8 +139,45 @@ ipcMain.on("maximize-external-window", (event, windowId) => {
   maximizeWindowbyId(windowId);
 });
 
+ipcMain.handle("get-process-list", async () => {
+  const windows = await fetchWindows();
+  return windows;
+});
+
+const movingWindows = new Map();
+
+function startSmoothMovement(windowId) {
+  if (movingWindows.has(windowId)) return;
+
+  const target = fetchWindows().find((w) => w.path.includes(windowId));
+  if (!target || !target.window) {
+    console.warn(`[startSmoothMovement] No window found for ${windowId}`);
+    return;
+  }
+
+  const win = target.window;
+
+  // Use an object for mutable velocity
+  const velocity = { x: 0, y: 0 };
+
+  const interval = setInterval(() => {
+    const bounds = win.getBounds();
+    win.setBounds({
+      x: bounds.x + velocity.x,
+      y: bounds.y + velocity.y,
+      width: bounds.width,
+      height: bounds.height,
+    });
+  }, 8);
+
+  movingWindows.set(windowId, { interval, velocity });
+}
+
 ipcMain.on("move-external-window", (event, { windowId, x, y }) => {
-  smoothMoveWindowById(windowId, x, y);
+  if (!movingWindows.has(windowId)) startSmoothMovement(windowId);
+  const data = movingWindows.get(windowId);
+  data.velocity.x = x;
+  data.velocity.y = y;
 });
 
 // Set up IPC listeners

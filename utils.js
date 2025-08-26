@@ -75,48 +75,51 @@ function maximizeWindowbyId(windowId) {
   }
 }
 
-function smoothMoveWindowById(windowId, targetX, targetY, options = {}) {
-  const steps = options.steps || 30;
-  const interval = options.interval || 16; // ~60fps
+async function smoothMoveWindowById(windowId, deltaX, deltaY, options = {}) {
+  const steps = options.steps || 60; // number of steps
+  const interval = options.interval || 8; // ms between steps (~120fps)
 
   const windows = fetchWindows();
+  console.log("windones fetched", windows);
   const target = windows.find((w) => w.path.includes(windowId));
   if (!target || !target.window) {
-    console.log(
-      "[smooth-move-external-window] No matching window found for windowId:",
+    console.warn(
+      "[smooth-move-window] No matching window found for windowId:",
       windowId
     );
     return;
   }
 
   const win = target.window;
-  const startBounds = win.getBounds();
-  const dx = (targetX - startBounds.x) / steps;
-  const dy = (targetY - startBounds.y) / steps;
+  const startBounds = target.bounds;
+  const startX = startBounds.x;
+  const startY = startBounds.y;
   const width = startBounds.width;
   const height = startBounds.height;
 
   let currentStep = 0;
 
+  // Optional easing function for smoother movement
+  function easeInOut(t) {
+    return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+  }
+
   function step() {
-    if (currentStep < steps) {
-      const newX = Math.round(startBounds.x + dx * currentStep);
-      const newY = Math.round(startBounds.y + dy * currentStep);
-      win.setBounds({ x: newX, y: newY, width, height });
-      currentStep++;
+    currentStep++;
+    const progress = Math.min(currentStep / steps, 1);
+    const easedProgress = easeInOut(progress);
+
+    const newX = Math.round(startX + deltaX * easedProgress);
+    const newY = Math.round(startY + deltaY * easedProgress);
+
+    win.setBounds({ x: newX, y: newY, width, height });
+
+    if (progress < 1) {
       setTimeout(step, interval);
     } else {
-      // Final position to ensure accuracy
-      win.setBounds({
-        x: targetX,
-        y: targetY,
-        width,
-        height,
-      });
-      console.log(
-        "[smooth-move-external-window] Move complete for windowId:",
-        windowId
-      );
+      // ensure exact final position
+      win.setBounds({ x: startX + deltaX, y: startY + deltaY, width, height });
+      console.log("[smooth-move-window] Move complete for windowId:", windowId);
     }
   }
 
