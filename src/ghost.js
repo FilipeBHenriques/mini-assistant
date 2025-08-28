@@ -1,9 +1,21 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import {
+  CSS2DRenderer,
+  CSS2DObject,
+} from "three/examples/jsm/renderers/CSS2DRenderer.js";
 
 const canvas = document.getElementById("ghost-canvas");
 const clock = new THREE.Clock();
 const GHOST_SCALE = 0.2;
+
+const GhostStates = {
+  Chill: "Chill",
+  Angry: "Angry",
+  Sleeping: "Sleeping",
+};
+
+let ghostState = GhostStates.Chill; // default state
 
 // Scene & camera
 const scene = new THREE.Scene();
@@ -23,6 +35,13 @@ const renderer = new THREE.WebGLRenderer({
 });
 renderer.setSize(window.innerWidth, window.innerHeight);
 
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(window.innerWidth, window.innerHeight);
+labelRenderer.domElement.style.position = "absolute";
+labelRenderer.domElement.style.top = "0";
+labelRenderer.domElement.style.pointerEvents = "none"; // clicks pass through
+document.body.appendChild(labelRenderer.domElement);
+
 // Lights
 const dir = new THREE.DirectionalLight(0xffffff, 1);
 dir.position.set(5, 5, 5);
@@ -40,6 +59,9 @@ let lastNonZeroMove = new THREE.Vector2(1, 0);
 let targetRotationY = Math.PI / 2;
 let smoothTurnSpeed = 6.0;
 
+let ghostLabel;
+let labelObj;
+
 const loader = new GLTFLoader();
 loader.load(
   new URL("./assets/ghost2.glb", import.meta.url).href,
@@ -55,6 +77,18 @@ loader.load(
     ghostHalfWidth = size.x / 2;
     ghostHalfHeight = size.y / 2;
     console.log("✅ Ghost loaded, bounding box:", size);
+
+    // --- Label ---
+    ghostLabel = document.createElement("div");
+    ghostLabel.textContent = `State: ${ghostState}`;
+    ghostLabel.style.color = "white";
+    ghostLabel.style.fontFamily = "sans-serif";
+    ghostLabel.style.fontSize = "16px";
+    ghostLabel.style.textShadow = "0 0 5px black";
+
+    labelObj = new CSS2DObject(ghostLabel);
+    labelObj.position.set(0, -ghostHalfHeight - 0.2, 0); // below ghost
+    ghost.add(labelObj);
 
     if (gltf.animations && gltf.animations.length) {
       mixer = new THREE.AnimationMixer(ghost);
@@ -90,6 +124,15 @@ document.addEventListener("keydown", (e) => {
 
   if (e.key.toLowerCase() === "n" && window.electronAPI?.maximizeExternal) {
     window.electronAPI.maximizeExternal(targetWindowId);
+  }
+
+  if (e.key.toLowerCase() === "p") {
+    if (ghostState === GhostStates.Chill) ghostState = GhostStates.Angry;
+    else if (ghostState === GhostStates.Angry)
+      ghostState = GhostStates.Sleeping;
+    else ghostState = GhostStates.Chill;
+
+    if (ghostLabel) ghostLabel.textContent = `State: ${ghostState}`;
   }
 });
 
@@ -226,6 +269,7 @@ function animate() {
   }
 
   renderer.render(scene, camera);
+  if (labelRenderer) labelRenderer.render(scene, camera);
 }
 
 animate();
