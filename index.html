@@ -32,6 +32,13 @@
         border-radius: 6px;
         z-index: 10;
       }
+      #ghost-hitbox {
+        position: absolute;
+        width: 150px;
+        height: 150px;
+        background: rgba(255, 0, 0, 0.2); /* debug: see it */
+        -webkit-app-region: no-drag; /* make it interactive */
+      }
     </style>
   </head>
   <body>
@@ -54,6 +61,7 @@
       </ul>
     </div>
     <canvas id="ghost-canvas"></canvas>
+    <div id="ghost-hitbox"></div>
     <script type="module" src="/src/ghost.js"></script>
   </body>
 </html>

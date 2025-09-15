@@ -18,4 +18,5 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.send("maximize-external-window", windowId),
   moveExternal: (windowId, x, y, width, height) =>
     ipcRenderer.send("move-external-window", { windowId, x, y, width, height }),
+  setClickThrough: (enable) => ipcRenderer.send("set-click-through", enable),
 });
