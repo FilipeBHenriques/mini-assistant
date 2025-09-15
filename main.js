@@ -173,6 +173,12 @@ function startSmoothMovement(windowId) {
   movingWindows.set(windowId, { interval, velocity });
 }
 
+ipcMain.on("set-click-through", (event, enable) => {
+  if (mainWindow) {
+    mainWindow.setIgnoreMouseEvents(enable, { forward: true });
+  }
+});
+
 ipcMain.on("move-external-window", (event, { windowId, x, y }) => {
   if (!movingWindows.has(windowId)) startSmoothMovement(windowId);
   const data = movingWindows.get(windowId);

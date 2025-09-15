@@ -4,6 +4,7 @@ import {
   CSS2DRenderer,
   CSS2DObject,
 } from "three/examples/jsm/renderers/CSS2DRenderer.js";
+import { screenToWorld, worldToScreen } from "./utils/utils.js";
 
 const canvas = document.getElementById("ghost-canvas");
 const clock = new THREE.Clock();
@@ -158,6 +159,78 @@ function movementLoop() {
 }
 movementLoop();
 
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+let isDragging = false;
+let dragPlane = new THREE.Plane();
+let dragOffset = new THREE.Vector3();
+let lastMouse = new THREE.Vector2();
+let mouseVel = new THREE.Vector2();
+
+canvas.addEventListener("mousedown", (e) => {
+  if (!ghost) return;
+
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObject(ghost, true);
+
+  if (intersects.length > 0) {
+    isDragging = true;
+    window.electronAPI?.setClickThrough(false);
+
+    // Drag plane for smooth movement
+    dragPlane.setFromNormalAndCoplanarPoint(
+      camera.getWorldDirection(new THREE.Vector3()),
+      intersects[0].point
+    );
+
+    dragOffset.copy(intersects[0].point).sub(ghost.position);
+    lastMouse.set(e.clientX, e.clientY);
+    mouseVel.set(0, 0);
+  }
+});
+
+canvas.addEventListener("mousemove", (e) => {
+  if (!ghost) return;
+
+  // Keep click-through toggle for hover effect
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObject(ghost, true);
+  window.electronAPI?.setClickThrough(intersects.length === 0);
+
+  // Dragging logic
+  if (!isDragging) return;
+
+  if (raycaster.ray.intersectPlane(dragPlane, new THREE.Vector3())) {
+    const pos = new THREE.Vector3();
+    raycaster.ray.intersectPlane(dragPlane, pos);
+    ghost.position.copy(pos.sub(dragOffset));
+  }
+
+  // Track velocity for fling
+  mouseVel.set(e.clientX - lastMouse.x, e.clientY - lastMouse.y);
+  lastMouse.set(e.clientX, e.clientY);
+});
+
+canvas.addEventListener("mouseup", () => {
+  if (!isDragging) return;
+  isDragging = false;
+
+  const scaleX =
+    (getWorldBounds().xMax - getWorldBounds().xMin) / window.innerWidth;
+  const scaleY =
+    (getWorldBounds().yMax - getWorldBounds().yMin) / window.innerHeight;
+
+  // Apply “goofy” velocity
+  velocity.x = mouseVel.x * scaleX * 0.2;
+  velocity.y = -mouseVel.y * scaleY * 0.2;
+
+  window.electronAPI?.setClickThrough(true);
+});
 // --- Ghost idle drift ---
 const velocity = new THREE.Vector3(
   (Math.random() - 0.5) * 0.02,
@@ -185,7 +258,7 @@ function animate() {
 
   if (mixer) mixer.update(delta);
 
-  if (ghost) {
+  if (ghost && !isDragging) {
     const isStandingStill = !!keys["r"];
 
     // Animation logic
