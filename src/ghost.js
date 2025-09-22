@@ -4,17 +4,18 @@ import {
   CSS2DRenderer,
   CSS2DObject,
 } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import { screenToWorld, worldToScreen } from "./utils/utils.js";
+import {
+  GHOST_SCALE,
+  GHOST_INITIAL_VELOCITY,
+  GHOST_MIN_FLING_SPEED,
+  GHOST_SIZE,
+  GhostStates,
+  GHOST_WALKING_SPEED,
+  GHOST_FLING_DECELERATION,
+} from "./utils/Consts";
 
 const canvas = document.getElementById("ghost-canvas");
 const clock = new THREE.Clock();
-const GHOST_SCALE = 0.2;
-
-const GhostStates = {
-  Chill: "Chill",
-  Angry: "Angry",
-  Sleeping: "Sleeping",
-};
 
 let ghostState = GhostStates.Chill; // default state
 
@@ -51,8 +52,8 @@ scene.add(new THREE.AmbientLight(0xffffff, 0.5));
 
 // Ghost model
 let ghost = null;
-let ghostHalfWidth = 0.5;
-let ghostHalfHeight = 0.5;
+let ghostHalfWidth = GHOST_SIZE.halfWidth;
+let ghostHalfHeight = GHOST_SIZE.halfHeight;
 let mixer = null;
 let walkAction = null;
 let lastDirection = "right";
@@ -146,10 +147,10 @@ function movementLoop() {
   let x = 0;
   let y = 0;
 
-  if (keys["j"]) x -= moveAmount;
-  if (keys["l"]) x += moveAmount;
-  if (keys["i"]) y -= moveAmount;
-  if (keys["k"]) y += moveAmount;
+  if (keys["j"]) x -= GHOST_WALKING_SPEED;
+  if (keys["l"]) x += GHOST_WALKING_SPEED;
+  if (keys["i"]) y -= GHOST_WALKING_SPEED;
+  if (keys["k"]) y += GHOST_WALKING_SPEED;
 
   if (window.electronAPI?.moveExternal) {
     window.electronAPI.moveExternal(targetWindowId, x, y);
@@ -224,17 +225,31 @@ canvas.addEventListener("mouseup", () => {
     (getWorldBounds().xMax - getWorldBounds().xMin) / window.innerWidth;
   const scaleY =
     (getWorldBounds().yMax - getWorldBounds().yMin) / window.innerHeight;
-
+  console.log("sclae", scaleX, scaleY);
   // Apply “goofy” velocity
-  velocity.x = mouseVel.x * scaleX * 0.2;
-  velocity.y = -mouseVel.y * scaleY * 0.2;
+  velocity.x = mouseVel.x * scaleX * 0.4;
+  velocity.y = -mouseVel.y * scaleY * 0.4;
 
+  const minVelocity = GHOST_MIN_FLING_SPEED; // tweak to taste
+
+  velocity.x = mouseVel.x * scaleX * 0.4;
+  velocity.y = -mouseVel.y * scaleY * 0.4;
+
+  // Apply minimums
+  if (Math.abs(velocity.x) < minVelocity)
+    velocity.x = Math.sign(velocity.x || 1) * minVelocity;
+  if (Math.abs(velocity.y) < minVelocity)
+    velocity.y = Math.sign(velocity.y || 1) * minVelocity;
+
+  isFlinging = true;
   window.electronAPI?.setClickThrough(true);
 });
 // --- Ghost idle drift ---
+
+let isFlinging = false;
 const velocity = new THREE.Vector3(
-  (Math.random() - 0.5) * 0.02,
-  (Math.random() - 0.5) * 0.02
+  GHOST_INITIAL_VELOCITY,
+  GHOST_INITIAL_VELOCITY
 );
 
 // --- World bounds calculation ---
@@ -284,6 +299,22 @@ function animate() {
       ghost.position.x += moveX * speed;
       ghost.position.y += moveY * speed;
       lastNonZeroMove.set(moveX, moveY);
+    } else if (isFlinging) {
+      // Gradually decrease velocity magnitude toward normal walking speed
+      const normalSpeed = GHOST_WALKING_SPEED;
+      const currentSpeed = velocity.length();
+      if (currentSpeed > normalSpeed) {
+        // Reduce speed smoothly
+        const deceleration = GHOST_FLING_DECELERATION; // tweak for smoothness
+        const newSpeed = Math.max(currentSpeed - deceleration, normalSpeed);
+        velocity.setLength(newSpeed);
+      } else if (currentSpeed < normalSpeed) {
+        // If for some reason velocity is less than normal, bring it up
+        velocity.setLength(normalSpeed);
+      }
+    } else {
+      // 💤 Idle drift (only when no fling & no keys)
+      ghost.position.add(velocity);
     }
 
     // Idle drift
