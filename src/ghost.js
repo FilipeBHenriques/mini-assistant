@@ -112,8 +112,17 @@ const keys = {};
 const targetWindowId = "msedge.exe";
 const moveAmount = 5;
 
-document.addEventListener("keydown", (e) => {
+document.addEventListener("keydown", async (e) => {
   keys[e.key.toLowerCase()] = true;
+
+  if (e.key === "i") {
+    if (window.electronAPI?.askGhost) {
+      const ghostResponse = await window.electronAPI.askGhost();
+      console.log("👻 Ghost says:", ghostResponse);
+
+      if (ghostLabel) ghostLabel.textContent = ghostResponse;
+    }
+  }
 
   if (e.key === " ") {
     e.preventDefault();
