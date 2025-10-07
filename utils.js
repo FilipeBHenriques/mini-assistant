@@ -34,6 +34,18 @@ function fetchWindows() {
     }));
 }
 
+function getActiveWindow() {
+  const activateWindow = windowManager.getActiveWindow();
+  return {
+    id: activateWindow.id,
+    title: activateWindow.getTitle(),
+    bounds: activateWindow.getBounds(),
+    processId: activateWindow.processId,
+    path: activateWindow.path ? path.basename(activateWindow.path) : null,
+    window: activateWindow,
+  };
+}
+
 function minimizeWindowbyId(windowId) {
   console.log("[minimize-external-window] called with windowId:", windowId);
   const windows = fetchWindows();
@@ -131,4 +143,5 @@ module.exports = {
   minimizeWindowbyId,
   maximizeWindowbyId,
   smoothMoveWindowById,
+  getActiveWindow,
 };

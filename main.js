@@ -4,7 +4,15 @@ const {
   minimizeWindowbyId,
   maximizeWindowbyId,
   smoothMoveWindowById,
+  getActiveWindow,
 } = require("./utils.js");
+
+const OpenAI = require("openai");
+
+const ollama = new OpenAI({
+  baseURL: "http://localhost:11434/v1",
+  apiKey: "none",
+});
 
 const path = require("path");
 
@@ -142,6 +150,38 @@ ipcMain.on("maximize-external-window", (event, windowId) => {
 ipcMain.handle("get-process-list", async () => {
   const windows = await fetchWindows();
   return windows;
+});
+
+ipcMain.handle("ask-ghost", async (event) => {
+  try {
+    const activeWindow = await getActiveWindow();
+    const allWindows = await fetchWindows();
+
+    // Compose a prompt for the AI based on the active window and all open windows
+    let promptMsg =
+      "Based on the following information, tell me if the user is procrastinating, working, or just vibing. Be concise and explain your reasoning.\n";
+    promptMsg += "Active window:\n";
+    if (activeWindow && activeWindow.length > 0) {
+      const aw = activeWindow[0];
+      promptMsg += `- Title: ${aw.title}\n- App: ${aw.path}\n`;
+    } else {
+      promptMsg += "- No active window detected.\n";
+    }
+    promptMsg += "Other open windows:\n";
+    allWindows.forEach((w) => {
+      promptMsg += `- Title: ${w.title} | App: ${w.path}\n`;
+    });
+    promptMsg +=
+      "\nClassify the user's current state as 'procrastinating', 'working', or 'vibing'.";
+    const res = await ollama.chat.completions.create({
+      model: "mistral",
+      messages: [{ role: "user", content: promptMsg }],
+    });
+    return res.choices[0].message.content;
+  } catch (err) {
+    console.error("Ollama error:", err);
+    return "(Ghost is silent... Ollama might not be running)";
+  }
 });
 
 const movingWindows = new Map();
