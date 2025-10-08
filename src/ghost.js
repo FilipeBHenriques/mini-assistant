@@ -15,7 +15,15 @@ import {
 } from "./utils/Consts";
 
 const canvas = document.getElementById("ghost-canvas");
+const ghostDragArea = document.getElementById("ghost-drag-area");
 const clock = new THREE.Clock();
+
+// Check if drag area element exists
+if (!ghostDragArea) {
+  console.error("❌ Ghost drag area element not found!");
+} else {
+  console.log("✅ Ghost drag area element found");
+}
 
 let ghostState = GhostStates.Chill; // default state
 
@@ -97,6 +105,12 @@ loader.load(
       walkAction = mixer.clipAction(gltf.animations[0]);
       walkAction.play();
     }
+
+    // Initialize drag area position
+    updateDragAreaPosition();
+
+    // Start with click-through enabled (most of window is transparent)
+    window.electronAPI?.setClickThrough(true);
   },
   undefined,
   (err) => console.error("❌ Error loading ghost:", err)
@@ -130,6 +144,24 @@ if (window.electronAPI?.onAutoGhostResponse) {
 
     // Update UI
     if (ghostLabel) ghostLabel.textContent = `${parsed.state} (auto)`;
+  });
+}
+
+// --- Window resize handler ---
+if (window.electronAPI?.onResizeWindow) {
+  window.electronAPI.onResizeWindow(({ width, height }) => {
+    console.log(`🖼️ Resizing window to ${width}x${height}`);
+
+    // Update Three.js renderer size
+    renderer.setSize(width, height);
+    labelRenderer.setSize(width, height);
+
+    // Update camera aspect ratio
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+
+    // Update drag area positioning
+    updateDragAreaPosition();
   });
 }
 
@@ -203,80 +235,121 @@ function movementLoop() {
 }
 movementLoop();
 
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
+// --- Ghost drag area management ---
 let isDragging = false;
-let dragPlane = new THREE.Plane();
-let dragOffset = new THREE.Vector3();
-let lastMouse = new THREE.Vector2();
-let mouseVel = new THREE.Vector2();
+let dragOffset = { x: 0, y: 0 };
+let lastMouse = { x: 0, y: 0 };
+let mouseVel = { x: 0, y: 0 };
 
-canvas.addEventListener("mousedown", (e) => {
-  if (!ghost) return;
+// Function to update drag area position based on ghost position
+function updateDragAreaPosition() {
+  if (!ghost || !ghostDragArea) return;
 
-  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  // Convert 3D ghost position to screen coordinates
+  const vector = new THREE.Vector3();
+  ghost.getWorldPosition(vector);
+  vector.project(camera);
 
-  raycaster.setFromCamera(mouse, camera);
-  const intersects = raycaster.intersectObject(ghost, true);
+  const x = (vector.x * 0.5 + 0.5) * window.innerWidth;
+  const y = (vector.y * -0.5 + 0.5) * window.innerHeight;
 
-  if (intersects.length > 0) {
-    isDragging = true;
-    window.electronAPI?.setClickThrough(false);
+  // Center the 100px drag area on the ghost
+  const centerX = x - 50; // Half of 100px
+  const centerY = y - 50;
 
-    // Drag plane for smooth movement
-    dragPlane.setFromNormalAndCoplanarPoint(
-      camera.getWorldDirection(new THREE.Vector3()),
-      intersects[0].point
-    );
+  // Ensure the drag area stays within screen bounds
+  const clampedX = Math.max(0, Math.min(centerX, window.innerWidth - 100));
+  const clampedY = Math.max(0, Math.min(centerY, window.innerHeight - 100));
 
-    dragOffset.copy(intersects[0].point).sub(ghost.position);
-    lastMouse.set(e.clientX, e.clientY);
-    mouseVel.set(0, 0);
+  ghostDragArea.style.left = `${clampedX}px`;
+  ghostDragArea.style.top = `${clampedY}px`;
+}
+
+// Drag area event handlers
+// Enable interaction when mouse enters drag area
+ghostDragArea.addEventListener("mouseenter", () => {
+  console.log("🖱️ Mouse entered drag area - enabling interaction");
+  window.electronAPI?.setClickThrough(false);
+});
+
+// Disable interaction when mouse leaves drag area
+ghostDragArea.addEventListener("mouseleave", () => {
+  console.log("🖱️ Mouse left drag area - enabling click-through");
+  if (!isDragging) {
+    window.electronAPI?.setClickThrough(true);
   }
 });
 
-canvas.addEventListener("mousemove", (e) => {
+ghostDragArea.addEventListener("mousedown", (e) => {
+  console.log("🖱️ Drag area mousedown detected!");
   if (!ghost) return;
 
-  // Keep click-through toggle for hover effect
-  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-  raycaster.setFromCamera(mouse, camera);
-  const intersects = raycaster.intersectObject(ghost, true);
-  window.electronAPI?.setClickThrough(intersects.length === 0);
+  isDragging = true;
+  ghostDragArea.classList.add("dragging");
 
-  // Dragging logic
-  if (!isDragging) return;
+  // Calculate offset from mouse to ghost center
+  const rect = ghostDragArea.getBoundingClientRect();
+  dragOffset.x = e.clientX - rect.left - 50; // 50 is half of 100px drag area size
+  dragOffset.y = e.clientY - rect.top - 50;
 
-  if (raycaster.ray.intersectPlane(dragPlane, new THREE.Vector3())) {
-    const pos = new THREE.Vector3();
-    raycaster.ray.intersectPlane(dragPlane, pos);
-    ghost.position.copy(pos.sub(dragOffset));
-  }
+  lastMouse.x = e.clientX;
+  lastMouse.y = e.clientY;
+  mouseVel.x = 0;
+  mouseVel.y = 0;
 
-  // Track velocity for fling
-  mouseVel.set(e.clientX - lastMouse.x, e.clientY - lastMouse.y);
-  lastMouse.set(e.clientX, e.clientY);
+  e.preventDefault();
 });
 
-canvas.addEventListener("mouseup", () => {
-  if (!isDragging) return;
-  isDragging = false;
+document.addEventListener("mousemove", (e) => {
+  if (!isDragging || !ghost) return;
 
+  console.log("🖱️ Dragging ghost...");
+
+  // Update ghost position based on mouse movement
+  const deltaX = e.clientX - lastMouse.x;
+  const deltaY = e.clientY - lastMouse.y;
+
+  // Convert screen delta to world coordinates
   const scaleX =
     (getWorldBounds().xMax - getWorldBounds().xMin) / window.innerWidth;
   const scaleY =
     (getWorldBounds().yMax - getWorldBounds().yMin) / window.innerHeight;
-  console.log("sclae", scaleX, scaleY);
-  // Apply “goofy” velocity
+
+  ghost.position.x += deltaX * scaleX;
+  ghost.position.y -= deltaY * scaleY; // Invert Y for screen to world conversion
+
+  // Track velocity for fling
+  mouseVel.x = deltaX;
+  mouseVel.y = deltaY;
+
+  lastMouse.x = e.clientX;
+  lastMouse.y = e.clientY;
+
+  // Update drag area position
+  updateDragAreaPosition();
+});
+
+document.addEventListener("mouseup", () => {
+  if (!isDragging) return;
+
+  console.log("🖱️ Drag ended!");
+
+  isDragging = false;
+  ghostDragArea.classList.remove("dragging");
+
+  // Re-enable click-through after dragging
+  window.electronAPI?.setClickThrough(true);
+
+  // Apply fling velocity
+  const scaleX =
+    (getWorldBounds().xMax - getWorldBounds().xMin) / window.innerWidth;
+  const scaleY =
+    (getWorldBounds().yMax - getWorldBounds().yMin) / window.innerHeight;
+
   velocity.x = mouseVel.x * scaleX * 0.4;
   velocity.y = -mouseVel.y * scaleY * 0.4;
 
-  const minVelocity = GHOST_MIN_FLING_SPEED; // tweak to taste
-
-  velocity.x = mouseVel.x * scaleX * 0.4;
-  velocity.y = -mouseVel.y * scaleY * 0.4;
+  const minVelocity = GHOST_MIN_FLING_SPEED;
 
   // Apply minimums
   if (Math.abs(velocity.x) < minVelocity)
@@ -285,7 +358,6 @@ canvas.addEventListener("mouseup", () => {
     velocity.y = Math.sign(velocity.y || 1) * minVelocity;
 
   isFlinging = true;
-  window.electronAPI?.setClickThrough(true);
 });
 // --- Ghost idle drift ---
 
@@ -413,6 +485,9 @@ function animate() {
       pos.textContent = `${ghost.position.x.toFixed(
         2
       )}, ${ghost.position.y.toFixed(2)}`;
+
+    // Update drag area position to follow ghost
+    updateDragAreaPosition();
   }
 
   renderer.render(scene, camera);

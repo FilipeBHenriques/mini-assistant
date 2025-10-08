@@ -12,15 +12,18 @@
         height: 100%;
         overflow: hidden;
         background: transparent;
-        position: 0;
-        border: 3px solid red;
         box-sizing: border-box;
+        border: 0; /* remove body border to avoid drag issues */
       }
+
       canvas {
         display: block;
         width: 100%;
         height: 100%;
+        border: 3px solid red; /* visible border for the ghost canvas */
+        pointer-events: none; /* Make canvas click-through */
       }
+
       #debug {
         position: fixed;
         top: 10px;
@@ -31,13 +34,34 @@
         padding: 6px 8px;
         border-radius: 6px;
         z-index: 10;
+        pointer-events: auto; /* Ensure debug panel is interactive */
       }
-      #ghost-hitbox {
-        position: absolute;
-        width: 150px;
-        height: 150px;
-        background: rgba(255, 0, 0, 0.2); /* debug: see it */
-        -webkit-app-region: no-drag; /* make it interactive */
+
+      #ghost-drag-area {
+        position: fixed;
+        width: 100px;
+        height: 100px;
+        background: rgba(255, 0, 0, 0.2);
+        border: 2px dashed rgba(255, 0, 0, 0.6);
+        border-radius: 50%;
+        pointer-events: auto;
+        cursor: grab;
+        z-index: 5;
+        transition: none; /* Remove transition to prevent lag */
+        opacity: 0.3;
+      }
+
+      #ghost-drag-area:hover {
+        opacity: 0.6;
+        background: rgba(255, 0, 0, 0.4);
+        border-color: rgba(255, 0, 0, 0.8);
+      }
+
+      #ghost-drag-area.dragging {
+        cursor: grabbing;
+        opacity: 0.8;
+        background: rgba(255, 0, 0, 0.5);
+        border-color: rgba(255, 0, 0, 1);
       }
     </style>
   </head>
@@ -60,8 +84,9 @@
         <li><b>P</b>: Change ghost state</li>
       </ul>
     </div>
+
+    <div id="ghost-drag-area"></div>
     <canvas id="ghost-canvas"></canvas>
-    <div id="ghost-hitbox"></div>
     <script type="module" src="/src/ghost.js"></script>
   </body>
 </html>

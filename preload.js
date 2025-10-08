@@ -27,4 +27,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
       callback(ghostResponse);
     });
   },
+
+  // Window resize listener
+  onResizeWindow: (callback) => {
+    ipcRenderer.on("resize-window", (event, size) => {
+      callback(size);
+    });
+  },
 });
