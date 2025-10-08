@@ -73,6 +73,7 @@ function createWindow() {
   // Start with the first display
   createWindowOnDisplay(0);
 }
+
 function createWindowOnDisplay(displayIndex) {
   const displays = screen.getAllDisplays();
   if (!displays[displayIndex]) return;
@@ -85,7 +86,10 @@ function createWindowOnDisplay(displayIndex) {
   );
 
   if (mainWindow) {
+    // Move & resize the window
     mainWindow.setBounds({ x, y, width, height });
+    // Send new size to renderer so it can update Three.js
+    mainWindow.webContents.send("resize-window", { width, height });
   } else {
     mainWindow = new BrowserWindow({
       width,
@@ -116,7 +120,7 @@ function createWindowOnDisplay(displayIndex) {
 
     mainWindow.once("ready-to-show", () => {
       mainWindow.show();
-      // Click-through overlay:
+      // Enable selective click-through: most of window is click-through, but drag area works
       mainWindow.setIgnoreMouseEvents(true, { forward: true });
     });
 
@@ -229,9 +233,11 @@ function startSmoothMovement(windowId) {
   movingWindows.set(windowId, { interval, velocity });
 }
 
+// Dynamic click-through control for selective interaction
 ipcMain.on("set-click-through", (event, enable) => {
   if (mainWindow) {
     mainWindow.setIgnoreMouseEvents(enable, { forward: true });
+    console.log(`🖱️ Click-through ${enable ? "enabled" : "disabled"}`);
   }
 });
 
