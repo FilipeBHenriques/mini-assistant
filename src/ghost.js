@@ -107,6 +107,32 @@ function switchMonitor() {
   if (window.electronAPI?.switchMonitor) window.electronAPI.switchMonitor();
 }
 
+// --- Auto ghost response handler ---
+if (window.electronAPI?.onAutoGhostResponse) {
+  window.electronAPI.onAutoGhostResponse((ghostResponse) => {
+    console.log("👻 Received auto ghost response:", ghostResponse);
+
+    let parsed;
+    try {
+      parsed = JSON.parse(ghostResponse);
+    } catch {
+      parsed = { state: "unknown", reasoning: ghostResponse };
+    }
+
+    // Update ghost state based on the response
+    if (parsed.state === "procrastinating") {
+      ghostState = GhostStates.Angry;
+    } else if (parsed.state === "working") {
+      ghostState = GhostStates.Chill;
+    } else if (parsed.state === "vibing") {
+      ghostState = GhostStates.Sleeping;
+    }
+
+    // Update UI
+    if (ghostLabel) ghostLabel.textContent = `${parsed.state} (auto)`;
+  });
+}
+
 // --- Key handling ---
 const keys = {};
 const targetWindowId = "msedge.exe";
@@ -120,7 +146,15 @@ document.addEventListener("keydown", async (e) => {
       const ghostResponse = await window.electronAPI.askGhost();
       console.log("👻 Ghost says:", ghostResponse);
 
-      if (ghostLabel) ghostLabel.textContent = ghostResponse;
+      let parsed;
+      try {
+        parsed = JSON.parse(ghostResponse);
+      } catch {
+        parsed = { state: "unknown", reasoning: ghostResponse };
+      }
+
+      // Update UI
+      if (ghostLabel) ghostLabel.textContent = parsed.state;
     }
   }
 

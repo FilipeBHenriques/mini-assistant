@@ -20,4 +20,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.send("move-external-window", { windowId, x, y, width, height }),
   setClickThrough: (enable) => ipcRenderer.send("set-click-through", enable),
   askGhost: (prompt) => ipcRenderer.invoke("ask-ghost", prompt),
+
+  // Auto ghost response listener
+  onAutoGhostResponse: (callback) => {
+    ipcRenderer.on("auto-ghost-response", (event, ghostResponse) => {
+      callback(ghostResponse);
+    });
+  },
 });
