@@ -5,6 +5,7 @@ const {
   maximizeWindowbyId,
   smoothMoveWindowById,
   getActiveWindow,
+  getDesktopIdleDuration,
 } = require("./utils.js");
 
 const OpenAI = require("openai");
@@ -21,6 +22,7 @@ const isDev = !app.isPackaged;
 let mainWindow;
 let tray = null;
 let currentDisplayIndex = 0;
+let lastActiveWindow = null; // Store the last active window that isn't the overlay
 function createTray() {
   tray = new Tray(path.join(__dirname, "public/logo192.png"));
   console.log(`Creating Tray`);
@@ -156,10 +158,14 @@ ipcMain.handle("ask-ghost", async (event) => {
   try {
     const activeWindow = await getActiveWindow();
     const allWindows = await fetchWindows();
+    const isIdle = await getDesktopIdleDuration();
+    console.log(`User has been ide for ${isIdle} minutes`);
+    console.log(`Active window: ${activeWindow.title}`);
 
     // Compose a prompt for the AI based on the active window and all open windows
     let promptMsg =
       "Based on the following information, tell me if the user is procrastinating, working, or just vibing. Be concise and explain your reasoning.\n";
+    promptMsg += `User has been ide for ${isIdle} minutes\n`;
     promptMsg += "Active window:\n";
     if (activeWindow && activeWindow.length > 0) {
       const aw = activeWindow[0];
@@ -171,8 +177,18 @@ ipcMain.handle("ask-ghost", async (event) => {
     allWindows.forEach((w) => {
       promptMsg += `- Title: ${w.title} | App: ${w.path}\n`;
     });
-    promptMsg +=
-      "\nClassify the user's current state as 'procrastinating', 'working', or 'vibing'.";
+    promptMsg += `
+    Classify the user's current state as one of the following:
+    - "procrastinating"
+    - "working"
+    - "vibing"
+
+    Respond in JSON format like this:
+    {
+      "state": "<one of the three>",
+      "reasoning": "<short explanation>"
+    }`;
+
     const res = await ollama.chat.completions.create({
       model: "mistral",
       messages: [{ role: "user", content: promptMsg }],
@@ -256,6 +272,67 @@ app.whenReady().then(() => {
       console.log("Open windows:", JSON.stringify(windows, null, 2));
     } catch (err) {
       console.error("Failed to get open windows:", err);
+    }
+  }, 30000); // every 30 seconds
+
+  // Auto-run ASJ ghost every 30 seconds
+  setInterval(async () => {
+    try {
+      console.log("🤖 Auto-running ASJ ghost...");
+      const activeWindow = await getActiveWindow();
+      const allWindows = await fetchWindows();
+      const isIdle = await getDesktopIdleDuration();
+
+      // Compose a prompt for the AI based on the active window and all open windows
+      let promptMsg =
+        "Based on the following information, tell me if the user is procrastinating, working, or just vibing. Be concise and explain your reasoning.\n";
+      promptMsg += `User has been idle for ${isIdle} minutes\n`;
+      promptMsg += "Active window:\n";
+      if (activeWindow) {
+        if (activeWindow.title && activeWindow.title.trim() !== "") {
+          promptMsg += `- Title: ${activeWindow.title}\n- App: ${activeWindow.path}\n`;
+        } else {
+          promptMsg += `- App: ${activeWindow.path}\n`;
+        }
+      } else {
+        promptMsg += "- No active window detected.\n";
+      }
+      promptMsg += "Other open windows:\n";
+      allWindows.forEach((w) => {
+        if (w.title && w.title.trim() !== "") {
+          promptMsg += `- Title: ${w.title} | App: ${w.path}\n`;
+        } else {
+          promptMsg += `- App: ${w.path}\n`;
+        }
+      });
+      promptMsg += `
+      Classify the user's current state as one of the following:
+      - "procrastinating"
+      - "working"
+      - "vibing"
+
+      Respond in JSON format like this:
+      {
+        "state": "<one of the three>",
+        "reasoning": "<short explanation>"
+      }`;
+
+      console.log("Prompt:", promptMsg);
+
+      const res = await ollama.chat.completions.create({
+        model: "mistral",
+        messages: [{ role: "user", content: promptMsg }],
+      });
+
+      const ghostResponse = res.choices[0].message.content;
+      console.log("👻 Auto Ghost says:", ghostResponse);
+
+      // Send the response to the renderer process
+      if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.send("auto-ghost-response", ghostResponse);
+      }
+    } catch (err) {
+      console.error("Auto ASJ ghost error:", err);
     }
   }, 30000); // every 30 seconds
 

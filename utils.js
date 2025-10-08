@@ -1,15 +1,18 @@
 const { windowManager } = require("node-window-manager");
 const path = require("path");
+const desktopIdle = require("desktop-idle");
+
+let lastActiveWindow = null; // Store the last active window that isn't the overlay
 
 function fetchWindows() {
   return windowManager
     .getWindows()
     .filter((w) => {
       if (!w.isWindow() || !w.isVisible()) return false;
-      if (!w.getTitle().trim()) return false;
 
       // get exe name only
       const exe = w.path ? path.basename(w.path).toLowerCase() : "";
+      const title = w.getTitle().trim();
 
       // skip known background/helper processes
       if (
@@ -17,33 +20,63 @@ function fetchWindows() {
         exe.includes("crashpad") ||
         exe.includes("helper") ||
         exe.includes("overlay") ||
-        exe.includes("updater")
+        exe.includes("updater") ||
+        exe.includes("dwm") || // Desktop Window Manager
+        exe.includes("winlogon") || // Windows logon
+        exe.includes("csrss") // Client Server Runtime Process
       ) {
         return false;
       }
 
       return true;
     })
-    .map((w) => ({
-      id: w.id,
-      title: w.getTitle(),
-      bounds: w.getBounds(),
-      processId: w.processId,
-      path: w.path ? path.basename(w.path) : null,
-      window: w,
-    }));
+    .map((w) => {
+      const title = w.getTitle().trim();
+      const exe = w.path ? path.basename(w.path) : "Unknown";
+
+      return {
+        id: w.id,
+        title: title || `${exe} (No Title)`, // Fallback title for windows without names
+        bounds: w.getBounds(),
+        processId: w.processId,
+        path: exe,
+        window: w,
+      };
+    });
 }
 
 function getActiveWindow() {
   const activateWindow = windowManager.getActiveWindow();
-  return {
+  console.log("activateWindow", activateWindow);
+
+  // Check if the active window is our overlay electron window
+  const isOverlayWindow =
+    activateWindow.path &&
+    (activateWindow.path.includes("electron") ||
+      activateWindow.path.includes("mini-assistant"));
+
+  if (isOverlayWindow) {
+    // Return the last saved active window if current is overlay
+    return lastActiveWindow;
+  }
+
+  // Save this as the last active window since it's not the overlay
+  const title = activateWindow.getTitle().trim();
+  const exe = activateWindow.path
+    ? path.basename(activateWindow.path)
+    : "Unknown";
+
+  const windowInfo = {
     id: activateWindow.id,
-    title: activateWindow.getTitle(),
+    title: title || `${exe} (No Title)`, // Fallback title for windows without names
     bounds: activateWindow.getBounds(),
     processId: activateWindow.processId,
-    path: activateWindow.path ? path.basename(activateWindow.path) : null,
+    path: exe,
     window: activateWindow,
   };
+
+  lastActiveWindow = windowInfo;
+  return windowInfo;
 }
 
 function minimizeWindowbyId(windowId) {
@@ -53,11 +86,6 @@ function minimizeWindowbyId(windowId) {
   const target = windows.find((w) => w.path.includes(windowId));
 
   if (target && target.window) {
-    console.log("[minimize-external-window] Minimizing window:", {
-      id: target.id,
-      path: target.path,
-      title: target.title,
-    });
     target.window.minimize(); // ✅ works here
   } else {
     console.log(
@@ -138,10 +166,15 @@ async function smoothMoveWindowById(windowId, deltaX, deltaY, options = {}) {
   step();
 }
 
+function getDesktopIdleDuration() {
+  return desktopIdle.getIdleTime();
+}
+
 module.exports = {
   fetchWindows,
   minimizeWindowbyId,
   maximizeWindowbyId,
   smoothMoveWindowById,
   getActiveWindow,
+  getDesktopIdleDuration,
 };
