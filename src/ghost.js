@@ -18,7 +18,6 @@ const canvas = document.getElementById("ghost-canvas");
 const ghostDragArea = document.getElementById("ghost-drag-area");
 const clock = new THREE.Clock();
 
-// Check if drag area element exists
 if (!ghostDragArea) {
   console.error("❌ Ghost drag area element not found!");
 } else {
@@ -26,6 +25,15 @@ if (!ghostDragArea) {
 }
 
 let ghostState = GhostStates.Chill; // default state
+
+// ---- Debug Utility ----
+function setDebugFunctionCall(name) {
+  // Find a section with id="debug" in index.html and show what's being called
+  const debugDiv = document.getElementById("debugFunction");
+  if (debugDiv) {
+    debugDiv.textContent = "Ghost Behavior: " + name;
+  }
+}
 
 // Scene & camera
 const scene = new THREE.Scene();
@@ -97,7 +105,7 @@ loader.load(
     ghostLabel.style.textShadow = "0 0 5px black";
 
     labelObj = new CSS2DObject(ghostLabel);
-    labelObj.position.set(0, -ghostHalfHeight - 0.2, 0); // below ghost
+    labelObj.position.set(0, -ghostHalfHeight - 0.2, 0);
     ghost.add(labelObj);
 
     if (gltf.animations && gltf.animations.length) {
@@ -111,6 +119,8 @@ loader.load(
 
     // Start with click-through enabled (most of window is transparent)
     window.electronAPI?.setClickThrough(true);
+
+    startGhostBehaviorLoop();
   },
   undefined,
   (err) => console.error("❌ Error loading ghost:", err)
@@ -119,6 +129,33 @@ loader.load(
 // --- Monitor & external window control ---
 function switchMonitor() {
   if (window.electronAPI?.switchMonitor) window.electronAPI.switchMonitor();
+}
+
+// --- Util: Get a random open/active window ID from Electron
+async function getRandomActiveWindowId() {
+  // Assumes electronAPI.getOpenWindows returns list like [{ id, processName, title, ... }, ...]
+  if (window.electronAPI?.getOpenWindows) {
+    try {
+      const windows = await window.electronAPI.getOpenWindows();
+      if (Array.isArray(windows) && windows.length > 0) {
+        // pick a random window (not ourselves if possible)
+        // Exclude our own process/window (if we can detect)
+        const filtered = windows.filter(
+          (w) =>
+            !w.isGhostWindow && // (Optional: If electron marks its own ghost window)
+            !/ghost/i.test(w.title || "") // by window title fallback
+        );
+        const candidateList = filtered.length > 0 ? filtered : windows;
+        return candidateList[Math.floor(Math.random() * candidateList.length)]
+          .id;
+      }
+      return null;
+    } catch (e) {
+      console.warn("Could not get open windows for random move:", e);
+      return null;
+    }
+  }
+  return null;
 }
 
 // --- Auto ghost response handler ---
@@ -151,23 +188,17 @@ if (window.electronAPI?.onAutoGhostResponse) {
 if (window.electronAPI?.onResizeWindow) {
   window.electronAPI.onResizeWindow(({ width, height }) => {
     console.log(`🖼️ Resizing window to ${width}x${height}`);
-
-    // Update Three.js renderer size
     renderer.setSize(width, height);
     labelRenderer.setSize(width, height);
-
-    // Update camera aspect ratio
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
-
-    // Update drag area positioning
     updateDragAreaPosition();
   });
 }
 
 // --- Key handling ---
 const keys = {};
-const targetWindowId = "msedge.exe";
+let movementTargetWindowId = null;
 const moveAmount = 5;
 
 document.addEventListener("keydown", async (e) => {
@@ -184,25 +215,20 @@ document.addEventListener("keydown", async (e) => {
       } catch {
         parsed = { state: "unknown", reasoning: ghostResponse };
       }
-
-      // Update UI
       if (ghostLabel) ghostLabel.textContent = parsed.state;
     }
   }
-
   if (e.key === " ") {
     e.preventDefault();
     switchMonitor();
   }
-
   if (e.key.toLowerCase() === "m" && window.electronAPI?.minimizeExternal) {
-    window.electronAPI.minimizeExternal(targetWindowId);
+    // For demonstration, still uses old target
+    window.electronAPI.minimizeExternal(movementTargetWindowId || "msedge.exe");
   }
-
   if (e.key.toLowerCase() === "n" && window.electronAPI?.maximizeExternal) {
-    window.electronAPI.maximizeExternal(targetWindowId);
+    window.electronAPI.maximizeExternal(movementTargetWindowId || "msedge.exe");
   }
-
   if (e.key.toLowerCase() === "p") {
     if (ghostState === GhostStates.Chill) ghostState = GhostStates.Angry;
     else if (ghostState === GhostStates.Angry)
@@ -218,10 +244,10 @@ document.addEventListener("keyup", (e) => {
 });
 
 // --- External window movement loop ---
-function movementLoop() {
+// On first movement, select a random window. If not found, resets per movement trigger.
+async function movementLoop() {
   let x = 0;
   let y = 0;
-
   if (keys["j"]) x -= GHOST_WALKING_SPEED;
   if (keys["l"]) x += GHOST_WALKING_SPEED;
   if (keys["i"]) y -= GHOST_WALKING_SPEED;
@@ -240,6 +266,8 @@ let isDragging = false;
 let dragOffset = { x: 0, y: 0 };
 let lastMouse = { x: 0, y: 0 };
 let mouseVel = { x: 0, y: 0 };
+let isFlinging = false;
+const velocity = new THREE.Vector3(0, 0, 0); // Start at zero
 
 // Function to update drag area position based on ghost position
 function updateDragAreaPosition() {
@@ -254,7 +282,7 @@ function updateDragAreaPosition() {
   const y = (vector.y * -0.5 + 0.5) * window.innerHeight;
 
   // Center the 100px drag area on the ghost
-  const centerX = x - 50; // Half of 100px
+  const centerX = x - 50;
   const centerY = y - 50;
 
   // Ensure the drag area stays within screen bounds
@@ -265,31 +293,23 @@ function updateDragAreaPosition() {
   ghostDragArea.style.top = `${clampedY}px`;
 }
 
-// Drag area event handlers
-// Enable interaction when mouse enters drag area
 ghostDragArea.addEventListener("mouseenter", () => {
-  console.log("🖱️ Mouse entered drag area - enabling interaction");
   window.electronAPI?.setClickThrough(false);
 });
 
-// Disable interaction when mouse leaves drag area
 ghostDragArea.addEventListener("mouseleave", () => {
-  console.log("🖱️ Mouse left drag area - enabling click-through");
   if (!isDragging) {
     window.electronAPI?.setClickThrough(true);
   }
 });
 
 ghostDragArea.addEventListener("mousedown", (e) => {
-  console.log("🖱️ Drag area mousedown detected!");
   if (!ghost) return;
-
   isDragging = true;
   ghostDragArea.classList.add("dragging");
 
-  // Calculate offset from mouse to ghost center
   const rect = ghostDragArea.getBoundingClientRect();
-  dragOffset.x = e.clientX - rect.left - 50; // 50 is half of 100px drag area size
+  dragOffset.x = e.clientX - rect.left - 50;
   dragOffset.y = e.clientY - rect.top - 50;
 
   lastMouse.x = e.clientX;
@@ -303,69 +323,56 @@ ghostDragArea.addEventListener("mousedown", (e) => {
 document.addEventListener("mousemove", (e) => {
   if (!isDragging || !ghost) return;
 
-  console.log("🖱️ Dragging ghost...");
-
-  // Update ghost position based on mouse movement
   const deltaX = e.clientX - lastMouse.x;
   const deltaY = e.clientY - lastMouse.y;
 
-  // Convert screen delta to world coordinates
   const scaleX =
     (getWorldBounds().xMax - getWorldBounds().xMin) / window.innerWidth;
   const scaleY =
     (getWorldBounds().yMax - getWorldBounds().yMin) / window.innerHeight;
 
   ghost.position.x += deltaX * scaleX;
-  ghost.position.y -= deltaY * scaleY; // Invert Y for screen to world conversion
+  ghost.position.y -= deltaY * scaleY;
 
-  // Track velocity for fling
-  mouseVel.x = deltaX;
-  mouseVel.y = deltaY;
+  mouseVel.x = deltaX * 100;
+  mouseVel.y = deltaY * 100;
 
   lastMouse.x = e.clientX;
   lastMouse.y = e.clientY;
 
-  // Update drag area position
   updateDragAreaPosition();
 });
 
 document.addEventListener("mouseup", () => {
   if (!isDragging) return;
 
-  console.log("🖱️ Drag ended!");
-
   isDragging = false;
   ghostDragArea.classList.remove("dragging");
-
-  // Re-enable click-through after dragging
   window.electronAPI?.setClickThrough(true);
 
-  // Apply fling velocity
   const scaleX =
     (getWorldBounds().xMax - getWorldBounds().xMin) / window.innerWidth;
   const scaleY =
     (getWorldBounds().yMax - getWorldBounds().yMin) / window.innerHeight;
 
-  velocity.x = mouseVel.x * scaleX * 0.4;
-  velocity.y = -mouseVel.y * scaleY * 0.4;
+  velocity.x = mouseVel.x * scaleX * 1000;
+  velocity.y = -mouseVel.y * scaleY * 1000;
 
-  const minVelocity = GHOST_MIN_FLING_SPEED;
+  const minVelocity = 1.5;
 
-  // Apply minimums
   if (Math.abs(velocity.x) < minVelocity)
     velocity.x = Math.sign(velocity.x || 1) * minVelocity;
   if (Math.abs(velocity.y) < minVelocity)
     velocity.y = Math.sign(velocity.y || 1) * minVelocity;
 
+  // ----- Pause behaviors -----
+  if (ghostBehaviorTimeout) {
+    clearTimeout(ghostBehaviorTimeout);
+    ghostBehaviorTimeout = null;
+  }
+
   isFlinging = true;
 });
-// --- Ghost idle drift ---
-
-let isFlinging = false;
-const velocity = new THREE.Vector3(
-  GHOST_INITIAL_VELOCITY,
-  GHOST_INITIAL_VELOCITY
-);
 
 // --- World bounds calculation ---
 function getWorldBounds() {
@@ -381,27 +388,406 @@ function getWorldBounds() {
   };
 }
 
-// --- Animation loop ---
+/**
+ * ---------- GHOST STATE LOGIC BELOW ----------
+ */
+
+let ghostBehavior = null;
+let ghostBehaviorTimeout = null;
+
+function resetGhostBehaviorCycle() {
+  if (ghostBehaviorTimeout) clearTimeout(ghostBehaviorTimeout);
+  startGhostBehaviorLoop();
+}
+
+function startGhostBehaviorLoop() {
+  // Choose and run a behavior based on ghostState
+  let behaviors = [];
+  switch (ghostState) {
+    case GhostStates.Chill:
+      behaviors = [ghostChillMove, ghostChillSitCorner, ghostChillSpin];
+      break;
+    case GhostStates.Angry:
+      behaviors = [
+        ghostProcrastinateMinimize,
+        ghostProcrastinateDragWindow,
+        ghostProcrastinateFastMove,
+      ];
+      break;
+    case GhostStates.Sleeping:
+      behaviors = [ghostSleepBottomRight, ghostSleepFadeOut, ghostSleepSnore];
+      break;
+    default:
+      behaviors = [ghostChillMove];
+  }
+  ghostBehavior = behaviors[Math.floor(Math.random() * behaviors.length)];
+
+  ghostBehavior(); // will run its own timer between behaviors
+}
+
+//-------------------
+// Chill state behaviors
+//-------------------
+
+// Add a helper to wrap and show debug info for each behavior
+function withDebug(fn) {
+  return function () {
+    setDebugFunctionCall(fn.name);
+    if (isFlinging) return;
+    return fn.apply(this, arguments);
+  };
+}
+
+const ghostChillMove = withDebug(function ghostChillMove() {
+  // Move around the screen slowly for a few seconds.
+  let duration = 3000 + Math.random() * 2000;
+  let angle = Math.random() * Math.PI * 2;
+  let speed = 0.02 + Math.random() * 0.03;
+  let elapsed = 0;
+
+  function moveStep() {
+    if (!ghost || isDragging || isFlinging) return; // Interrupt if user drags
+    const delta = Math.min(clock.getDelta(), 0.05);
+
+    ghost.position.x += Math.cos(angle) * speed;
+    ghost.position.y += Math.sin(angle) * speed;
+
+    // Bounce ghost off bounds
+    const bounds = getWorldBounds();
+    const left = bounds.xMin + ghostHalfWidth;
+    const right = bounds.xMax - ghostHalfWidth;
+    const bottom = bounds.yMin + ghostHalfHeight;
+    const top = bounds.yMax - ghostHalfHeight;
+
+    if (ghost.position.x <= left || ghost.position.x >= right)
+      angle = Math.PI - angle;
+    if (ghost.position.y <= bottom || ghost.position.y >= top) angle = -angle;
+
+    updateDragAreaPosition();
+
+    elapsed += delta * 1000;
+    if (elapsed < duration) {
+      ghostBehaviorTimeout = setTimeout(moveStep, 16);
+    } else {
+      ghostBehaviorTimeout = setTimeout(startGhostBehaviorLoop, 500);
+    }
+  }
+  moveStep();
+});
+
+const ghostChillSitCorner = withDebug(function ghostChillSitCorner() {
+  if (!ghost) return;
+  // Go to a random corner and sit there for a random period.
+  const bounds = getWorldBounds();
+  const corners = [
+    { x: bounds.xMin + ghostHalfWidth, y: bounds.yMin + ghostHalfHeight },
+    { x: bounds.xMax - ghostHalfWidth, y: bounds.yMin + ghostHalfHeight },
+    { x: bounds.xMin + ghostHalfWidth, y: bounds.yMax - ghostHalfHeight },
+    { x: bounds.xMax - ghostHalfWidth, y: bounds.yMax - ghostHalfHeight },
+  ];
+  const target = corners[Math.floor(Math.random() * corners.length)];
+  let duration = 2000 + Math.random() * 3000;
+  let sitDuration = 1200 + Math.random() * 2000;
+
+  function goToCornerStep() {
+    if (!ghost || isDragging) return;
+    let dx = target.x - ghost.position.x;
+    let dy = target.y - ghost.position.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < 0.03) {
+      let prev = ghost.position.clone();
+      function sit() {
+        // Stay for sitDuration and occasionally blink (add minor visual)
+        if (!ghost) return;
+        let elapsed = 0;
+        function sitTick() {
+          elapsed += 150;
+          ghost.position.copy(prev);
+          if (elapsed < sitDuration) {
+            ghostBehaviorTimeout = setTimeout(sitTick, 150);
+          } else {
+            ghostBehaviorTimeout = setTimeout(startGhostBehaviorLoop, 200);
+          }
+        }
+        sitTick();
+      }
+      sit();
+    } else {
+      // Move towards corner
+      let speed = Math.min(dist, 0.045);
+      ghost.position.x += (dx / dist) * speed;
+      ghost.position.y += (dy / dist) * speed;
+      updateDragAreaPosition();
+      ghostBehaviorTimeout = setTimeout(goToCornerStep, 16);
+    }
+  }
+  goToCornerStep();
+});
+
+const ghostChillSpin = withDebug(function ghostChillSpin() {
+  // Spin in place for a random duration
+  let duration = 1800 + Math.random() * 1200;
+  let elapsed = 0;
+  function spinStep() {
+    if (!ghost || isDragging) return;
+    const delta = Math.min(clock.getDelta(), 0.05);
+    ghost.rotation.y += delta * 6.5; // Fast spin
+    elapsed += delta * 1000;
+    if (elapsed < duration) {
+      ghostBehaviorTimeout = setTimeout(spinStep, 16);
+    } else {
+      ghostBehaviorTimeout = setTimeout(startGhostBehaviorLoop, 500);
+    }
+  }
+  spinStep();
+});
+
+//-------------------
+// Procrastinating state (Angry)
+//-------------------
+
+const ghostProcrastinateMinimize = withDebug(
+  function ghostProcrastinateMinimize() {
+    // Calls electron to minimize a random external window, and looms at edge.
+    let done = false;
+    (async () => {
+      let randomTargetId = await getRandomActiveWindowId();
+      if (randomTargetId && window.electronAPI?.minimizeExternal) {
+        window.electronAPI.minimizeExternal(randomTargetId);
+        done = true;
+      }
+      // Quick zoom to corner for fun
+      if (ghost) {
+        const bounds = getWorldBounds();
+        ghost.position.x = bounds.xMin + ghostHalfWidth;
+        ghost.position.y = bounds.yMax - ghostHalfHeight;
+        updateDragAreaPosition();
+      }
+      ghostBehaviorTimeout = setTimeout(
+        startGhostBehaviorLoop,
+        done ? 1000 : 1500
+      );
+    })();
+  }
+);
+
+const ghostProcrastinateDragWindow = withDebug(
+  function ghostProcrastinateDragWindow() {
+    // Drags a random window around slowly in a lazy circle
+    let t = 0;
+    let runTime = 3000 + Math.random() * 2000;
+    let moving = true;
+    let selectedWindowId = null;
+
+    (async () => {
+      selectedWindowId = await getRandomActiveWindowId();
+
+      function dragStep() {
+        if (!ghost) return;
+        if (window.electronAPI?.moveExternal && selectedWindowId) {
+          let x = Math.cos(t / 90) * 6;
+          let y = Math.sin(t / 90) * 6;
+          window.electronAPI.moveExternal(selectedWindowId, x, y);
+        }
+        t += 2;
+        runTime -= 16;
+        if (runTime > 0) {
+          ghostBehaviorTimeout = setTimeout(dragStep, 16);
+        } else {
+          ghostBehaviorTimeout = setTimeout(startGhostBehaviorLoop, 600);
+        }
+      }
+      dragStep();
+    })();
+  }
+);
+
+const ghostProcrastinateFastMove = withDebug(
+  function ghostProcrastinateFastMove() {
+    // Move our ghost rapidly back and forth to get user attention
+    let moves = 0;
+    let maxMoves = 45 + Math.floor(Math.random() * 22);
+    let direction = 1;
+    function dash() {
+      if (!ghost) return;
+      const bounds = getWorldBounds();
+      ghost.position.x += direction * 0.16;
+      if (
+        ghost.position.x > bounds.xMax - ghostHalfWidth ||
+        ghost.position.x < bounds.xMin + ghostHalfWidth
+      ) {
+        direction = -direction;
+        moves += 1;
+      }
+      updateDragAreaPosition();
+      if (moves < maxMoves) {
+        ghostBehaviorTimeout = setTimeout(dash, 12);
+      } else {
+        ghostBehaviorTimeout = setTimeout(startGhostBehaviorLoop, 300);
+      }
+    }
+    dash();
+  }
+);
+
+//-------------------
+// Sleeping state
+//-------------------
+
+const ghostSleepBottomRight = withDebug(function ghostSleepBottomRight() {
+  // Go to bottom right and stand still, reduce alpha slightly
+  if (!ghost) return;
+  const bounds = getWorldBounds();
+  let targetX = bounds.xMax - ghostHalfWidth;
+  let targetY = bounds.yMin + ghostHalfHeight;
+  let interval = 0;
+
+  function moveToSleepSpot() {
+    if (!ghost) return;
+    let dx = targetX - ghost.position.x;
+    let dy = targetY - ghost.position.y;
+    let dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 0.025) {
+      ghost.position.x = targetX;
+      ghost.position.y = targetY;
+      ghost.material &&
+        ((ghost.material.transparent = true), (ghost.material.opacity = 0.72));
+      ghostBehaviorTimeout = setTimeout(
+        startGhostBehaviorLoop,
+        3500 + Math.random() * 1500
+      );
+    } else {
+      let speed = Math.min(dist, 0.04);
+      ghost.position.x += (dx / dist) * speed;
+      ghost.position.y += (dy / dist) * speed;
+      updateDragAreaPosition();
+      ghostBehaviorTimeout = setTimeout(moveToSleepSpot, 18);
+    }
+  }
+  moveToSleepSpot();
+});
+
+const ghostSleepFadeOut = withDebug(function ghostSleepFadeOut() {
+  // Fade ghost in and out to appear sleeping
+  if (!ghost) return;
+  let origAlpha =
+    ghost.material && ghost.material.opacity ? ghost.material.opacity : 1;
+  let t = 0;
+  function fadeStep() {
+    if (!ghost || !ghost.material) return;
+    t += 0.016;
+    ghost.material.transparent = true;
+    ghost.material.opacity = 0.7 + 0.22 * Math.cos(t * 2);
+    if (t < 5) {
+      ghostBehaviorTimeout = setTimeout(fadeStep, 16);
+    } else {
+      ghost.material.opacity = origAlpha;
+      ghostBehaviorTimeout = setTimeout(startGhostBehaviorLoop, 200);
+    }
+  }
+  fadeStep();
+});
+
+const ghostSleepSnore = withDebug(function ghostSleepSnore() {
+  // Simulate snoring - just a head tilt or a bob animation.
+  if (!ghost) return;
+  let elapsed = 0;
+  let duration = 1700 + Math.random() * 700;
+  function snore() {
+    elapsed += 20;
+    ghost.rotation.x = 0.15 * Math.sin(elapsed / 180);
+    if (elapsed < duration) {
+      ghostBehaviorTimeout = setTimeout(snore, 20);
+    } else {
+      ghost.rotation.x = 0;
+      ghostBehaviorTimeout = setTimeout(
+        startGhostBehaviorLoop,
+        350 + Math.random() * 200
+      );
+    }
+  }
+  snore();
+});
+
+/**
+ * Checks if the state has changed (otherwise continues current behavior until completed).
+ * Will be called frequently in the animation loop.
+ */
+let lastCheckedState = ghostState;
+
+function mainGhostStateLoop() {
+  if (ghostState !== lastCheckedState) {
+    lastCheckedState = ghostState;
+    resetGhostBehaviorCycle();
+    if (ghostLabel) ghostLabel.textContent = `State: ${ghostState}`;
+  }
+  setTimeout(mainGhostStateLoop, 500);
+}
+
+mainGhostStateLoop();
+
+/**
+ * --- Animation loop ---
+ * This loop is now focused on rendering & misc updates,
+ * and hands off the "ghost intent" behaviors to the above logic.
+ */
 function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
 
   if (mixer) mixer.update(delta);
 
-  if (ghost && !isDragging) {
-    const isStandingStill = !!keys["r"];
-
-    // Animation logic
-    if (walkAction) {
-      if (isStandingStill && walkAction.isRunning()) walkAction.stop();
-      else if (!isStandingStill && !walkAction.isRunning()) walkAction.play();
+  if (isFlinging && ghost) {
+    const delta = clock.getDelta();
+    console.log("velocti", velocity);
+    ghost.position.x += velocity.x * delta;
+    ghost.position.y += velocity.y * delta;
+    const bounds = getWorldBounds();
+    if (
+      ghost.position.x > bounds.xMax - ghostHalfWidth ||
+      ghost.position.x < bounds.xMin + ghostHalfWidth
+    ) {
+      velocity.x *= -1;
+      ghost.position.x = THREE.MathUtils.clamp(
+        ghost.position.x,
+        bounds.xMin + ghostHalfWidth,
+        bounds.xMax - ghostHalfWidth
+      );
+    }
+    if (
+      ghost.position.y > bounds.yMax - ghostHalfHeight ||
+      ghost.position.y < bounds.yMin + ghostHalfHeight
+    ) {
+      velocity.y *= -1;
+      ghost.position.y = THREE.MathUtils.clamp(
+        ghost.position.y,
+        bounds.yMin + ghostHalfHeight,
+        bounds.yMax - ghostHalfHeight
+      );
     }
 
-    const speed = isStandingStill ? 0 : 0.05;
+    // deceleration
+    velocity.multiplyScalar(
+      Math.pow(GHOST_FLING_DECELERATION || 0.92, delta * 60)
+    );
 
-    // Keyboard movement
-    let moveX = 0;
-    let moveY = 0;
+    // We check velocity.length() to see if the ghost's speed is very low,
+    // which means it has almost stopped after being flung. When that happens,
+    // we stop the fling and resume ghost behaviors.
+    if (velocity.length() < 10 || isNaN(velocity.length())) {
+      velocity.set(0, 0, 0);
+      isFlinging = false;
+      resetGhostBehaviorCycle();
+    }
+
+    updateDragAreaPosition();
+  }
+
+  // Keyboard movement overrides (optional)
+  if (ghost && !isDragging) {
+    let moveX = 0,
+      moveY = 0;
     if (keys["w"] || keys["arrowup"]) moveY += 1;
     if (keys["s"] || keys["arrowdown"]) moveY -= 1;
     if (keys["a"] || keys["arrowleft"]) moveX -= 1;
@@ -409,85 +795,10 @@ function animate() {
 
     if (moveX !== 0 || moveY !== 0) {
       const len = Math.sqrt(moveX * moveX + moveY * moveY);
-      moveX /= len;
-      moveY /= len;
-      ghost.position.x += moveX * speed;
-      ghost.position.y += moveY * speed;
-      lastNonZeroMove.set(moveX, moveY);
-    } else if (isFlinging) {
-      // Gradually decrease velocity magnitude toward normal walking speed
-      const normalSpeed = GHOST_WALKING_SPEED;
-      const currentSpeed = velocity.length();
-      if (currentSpeed > normalSpeed) {
-        // Reduce speed smoothly
-        const deceleration = GHOST_FLING_DECELERATION; // tweak for smoothness
-        const newSpeed = Math.max(currentSpeed - deceleration, normalSpeed);
-        velocity.setLength(newSpeed);
-      } else if (currentSpeed < normalSpeed) {
-        // If for some reason velocity is less than normal, bring it up
-        velocity.setLength(normalSpeed);
-      }
-    } else {
-      // 💤 Idle drift (only when no fling & no keys)
-      ghost.position.add(velocity);
+      ghost.position.x += (moveX / len) * 0.07;
+      ghost.position.y += (moveY / len) * 0.07;
+      updateDragAreaPosition();
     }
-
-    // Idle drift
-    if (!isStandingStill && moveX === 0 && moveY === 0) {
-      ghost.position.add(velocity);
-      if (velocity.x !== 0 || velocity.y !== 0)
-        lastNonZeroMove.set(velocity.x, velocity.y);
-    }
-
-    // Smooth turning
-    if (isStandingStill) {
-      ghost.rotation.y += Math.PI * delta;
-      targetRotationY = ghost.rotation.y;
-    } else {
-      if (lastNonZeroMove.x < -0.01) targetRotationY = -Math.PI / 2;
-      else if (lastNonZeroMove.x > 0.01) targetRotationY = Math.PI / 2;
-      else
-        targetRotationY = lastDirection === "left" ? -Math.PI / 2 : Math.PI / 2;
-
-      let currentY = ghost.rotation.y;
-      let deltaY =
-        ((targetRotationY - currentY + Math.PI) % (2 * Math.PI)) - Math.PI;
-      let step = smoothTurnSpeed * delta;
-      ghost.rotation.y +=
-        Math.abs(deltaY) < step ? deltaY : Math.sign(deltaY) * step;
-      lastDirection = targetRotationY > 0 ? "right" : "left";
-    }
-
-    // Bounce off world edges
-    const bounds = getWorldBounds();
-    const left = bounds.xMin + ghostHalfWidth;
-    const right = bounds.xMax - ghostHalfWidth;
-    const bottom = bounds.yMin + ghostHalfHeight;
-    const top = bounds.yMax - ghostHalfHeight;
-
-    if (ghost.position.x <= left) {
-      ghost.position.x = left;
-      velocity.x = Math.abs(velocity.x);
-    } else if (ghost.position.x >= right) {
-      ghost.position.x = right;
-      velocity.x = -Math.abs(velocity.x);
-    }
-    if (ghost.position.y <= bottom) {
-      ghost.position.y = bottom;
-      velocity.y = Math.abs(velocity.y);
-    } else if (ghost.position.y >= top) {
-      ghost.position.y = top;
-      velocity.y = -Math.abs(velocity.y);
-    }
-
-    const pos = document.getElementById("pos");
-    if (pos)
-      pos.textContent = `${ghost.position.x.toFixed(
-        2
-      )}, ${ghost.position.y.toFixed(2)}`;
-
-    // Update drag area position to follow ghost
-    updateDragAreaPosition();
   }
 
   renderer.render(scene, camera);

@@ -340,7 +340,7 @@ app.whenReady().then(() => {
     } catch (err) {
       console.error("Auto ASJ ghost error:", err);
     }
-  }, 30000); // every 30 seconds
+  }, 15000); // every 30 seconds
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
