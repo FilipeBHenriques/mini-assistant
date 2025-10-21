@@ -7,6 +7,7 @@ const {
   getActiveWindow,
   getDesktopIdleDuration,
 } = require("./utils.js");
+const { tools } = require("../mini-assistant/src/aiTools.js");
 
 const OpenAI = require("openai");
 
@@ -158,52 +159,6 @@ ipcMain.handle("get-process-list", async () => {
   return windows;
 });
 
-ipcMain.handle("ask-ghost", async (event) => {
-  try {
-    const activeWindow = await getActiveWindow();
-    const allWindows = await fetchWindows();
-    const isIdle = await getDesktopIdleDuration();
-    console.log(`User has been ide for ${isIdle} minutes`);
-    console.log(`Active window: ${activeWindow.title}`);
-
-    // Compose a prompt for the AI based on the active window and all open windows
-    let promptMsg =
-      "Based on the following information, tell me if the user is procrastinating, working, or just vibing. Be concise and explain your reasoning.\n";
-    promptMsg += `User has been ide for ${isIdle} minutes\n`;
-    promptMsg += "Active window:\n";
-    if (activeWindow && activeWindow.length > 0) {
-      const aw = activeWindow[0];
-      promptMsg += `- Title: ${aw.title}\n- App: ${aw.path}\n`;
-    } else {
-      promptMsg += "- No active window detected.\n";
-    }
-    promptMsg += "Other open windows:\n";
-    allWindows.forEach((w) => {
-      promptMsg += `- Title: ${w.title} | App: ${w.path}\n`;
-    });
-    promptMsg += `
-    Classify the user's current state as one of the following:
-    - "procrastinating"
-    - "working"
-    - "vibing"
-
-    Respond in JSON format like this:
-    {
-      "state": "<one of the three>",
-      "reasoning": "<short explanation>"
-    }`;
-
-    const res = await ollama.chat.completions.create({
-      model: "mistral",
-      messages: [{ role: "user", content: promptMsg }],
-    });
-    return res.choices[0].message.content;
-  } catch (err) {
-    console.error("Ollama error:", err);
-    return "(Ghost is silent... Ollama might not be running)";
-  }
-});
-
 const movingWindows = new Map();
 
 function startSmoothMovement(windowId) {
@@ -288,9 +243,34 @@ app.whenReady().then(() => {
       const activeWindow = await getActiveWindow();
       const allWindows = await fetchWindows();
       const isIdle = await getDesktopIdleDuration();
+      const availableTools = Object.entries(tools).map(
+        ([name, { description, parameters }]) => ({
+          name,
+          description,
+          parameters,
+        })
+      );
+
+      // Compose a system prompt that describes the ghost AI and available tools
+      const systemPrompt = `
+    You are a ghost AI living inside the computer.
+    You should act using these tools:
+    ${availableTools
+      .map(
+        (t) =>
+          `- ${t.name}: ${t.description}. Args: ${JSON.stringify(
+            t.parameters?.properties || {},
+            null,
+            0
+          )}`
+      )
+      .join("\n")}
+
+    `;
 
       // Compose a prompt for the AI based on the active window and all open windows
       let promptMsg =
+        systemPrompt +
         "Based on the following information, tell me if the user is procrastinating, working, or just vibing. Be concise and explain your reasoning.\n";
       promptMsg += `User has been idle for ${isIdle} minutes\n`;
       promptMsg += "Active window:\n";
@@ -317,17 +297,22 @@ app.whenReady().then(() => {
       - "working"
       - "vibing"
 
-      Respond in JSON format like this:
+      Respond in JSON format like this (tools are mandatory):
       {
         "state": "<one of the three>",
         "reasoning": "<short explanation>"
+        "tool": "<tool name from list>"
+        "args" "<JSON with args needed to call the tool>"
       }`;
 
       console.log("Prompt:", promptMsg);
 
       const res = await ollama.chat.completions.create({
         model: "mistral",
-        messages: [{ role: "user", content: promptMsg }],
+        messages: [
+          // { role: "system", content: systemPrompt },
+          { role: "user", content: promptMsg },
+        ],
       });
 
       const ghostResponse = res.choices[0].message.content;
@@ -340,7 +325,7 @@ app.whenReady().then(() => {
     } catch (err) {
       console.error("Auto ASJ ghost error:", err);
     }
-  }, 15000); // every 30 seconds
+  }, 10000); // every 30 seconds
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

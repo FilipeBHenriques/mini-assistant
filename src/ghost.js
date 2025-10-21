@@ -13,6 +13,7 @@ import {
   GHOST_WALKING_SPEED,
   GHOST_FLING_DECELERATION,
 } from "./utils/Consts";
+import { tools } from "./aiTools";
 
 const canvas = document.getElementById("ghost-canvas");
 const ghostDragArea = document.getElementById("ghost-drag-area");
@@ -158,6 +159,19 @@ async function getRandomActiveWindowId() {
   return null;
 }
 
+function setGhostState(state) {
+  // Change the in-memory ghost state and optionally trigger animation/sprite swap
+  if (GhostStates[state]) {
+    ghostState = GhostStates[state];
+    // Optionally update label/UI
+    if (ghostLabel) ghostLabel.textContent = `AI: ${state}`;
+    // You could trigger animation here (if using AnimationMixer or similar)
+    // e.g., playChillAnimation(), playAngryAnimation(), etc.
+  } else {
+    console.warn(`Unknown ghost state: ${state}`);
+  }
+}
+
 // --- Auto ghost response handler ---
 if (window.electronAPI?.onAutoGhostResponse) {
   window.electronAPI.onAutoGhostResponse((ghostResponse) => {
@@ -178,9 +192,23 @@ if (window.electronAPI?.onAutoGhostResponse) {
     } else if (parsed.state === "vibing") {
       ghostState = GhostStates.Sleeping;
     }
-
-    // Update UI
-    if (ghostLabel) ghostLabel.textContent = `${parsed.state} (auto)`;
+    // Call the AI tool chosen by the ghost, if it exists and has a run method
+    if (
+      parsed.tool &&
+      tools[parsed.tool] &&
+      typeof tools[parsed.tool].run === "function"
+    ) {
+      try {
+        tools[parsed.tool].run(parsed.args || {}, {
+          mainWindow: window.electronAPI,
+          setGhostState,
+        });
+      } catch (err) {
+        console.warn("Failed to run ghost tool:", parsed.tool, err);
+      }
+    } else {
+      console.log("Ghost tool not found or not runnable:", parsed.tool);
+    }
   });
 }
 
@@ -316,6 +344,7 @@ ghostDragArea.addEventListener("mousedown", (e) => {
   lastMouse.y = e.clientY;
   mouseVel.x = 0;
   mouseVel.y = 0;
+  velocity.set(0, 0, 0);
 
   e.preventDefault();
 });
@@ -709,23 +738,6 @@ const ghostSleepSnore = withDebug(function ghostSleepSnore() {
   }
   snore();
 });
-
-/**
- * Checks if the state has changed (otherwise continues current behavior until completed).
- * Will be called frequently in the animation loop.
- */
-let lastCheckedState = ghostState;
-
-function mainGhostStateLoop() {
-  if (ghostState !== lastCheckedState) {
-    lastCheckedState = ghostState;
-    resetGhostBehaviorCycle();
-    if (ghostLabel) ghostLabel.textContent = `State: ${ghostState}`;
-  }
-  setTimeout(mainGhostStateLoop, 500);
-}
-
-mainGhostStateLoop();
 
 /**
  * --- Animation loop ---
