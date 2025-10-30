@@ -3,9 +3,9 @@ const {
   fetchWindows,
   minimizeWindowbyId,
   maximizeWindowbyId,
-  smoothMoveWindowById,
   getActiveWindow,
   getDesktopIdleDuration,
+  animateWindowToRandomDisplayPosition,
 } = require("./utils.js");
 const { tools } = require("../mini-assistant/src/aiTools.js");
 
@@ -26,7 +26,6 @@ let currentDisplayIndex = 0;
 let lastActiveWindow = null; // Store the last active window that isn't the overlay
 function createTray() {
   tray = new Tray(path.join(__dirname, "public/logo192.png"));
-  console.log(`Creating Tray`);
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -72,7 +71,7 @@ function createWindow() {
   console.log(`Found ${displays.length} displays`);
 
   // Start with the first display
-  createWindowOnDisplay(0);
+  createWindowOnDisplay(1);
 }
 
 function createWindowOnDisplay(displayIndex) {
@@ -154,53 +153,29 @@ ipcMain.on("maximize-external-window", (event, windowId) => {
   maximizeWindowbyId(windowId);
 });
 
-ipcMain.handle("get-process-list", async () => {
+ipcMain.handle("get-active-window", async () => {
+  // Use whatever window manager or API you have:
+  const win = getActiveWindow(); // example
+  if (!win) return null;
+  return win;
+});
+
+ipcMain.handle("get-windows", async () => {
   const windows = await fetchWindows();
   return windows;
 });
 
 const movingWindows = new Map();
 
-function startSmoothMovement(windowId) {
-  if (movingWindows.has(windowId)) return;
-
-  const target = fetchWindows().find((w) => w.path.includes(windowId));
-  if (!target || !target.window) {
-    console.warn(`[startSmoothMovement] No window found for ${windowId}`);
-    return;
-  }
-
-  const win = target.window;
-
-  // Use an object for mutable velocity
-  const velocity = { x: 0, y: 0 };
-
-  const interval = setInterval(() => {
-    const bounds = win.getBounds();
-    win.setBounds({
-      x: bounds.x + velocity.x,
-      y: bounds.y + velocity.y,
-      width: bounds.width,
-      height: bounds.height,
-    });
-  }, 8);
-
-  movingWindows.set(windowId, { interval, velocity });
-}
-
 // Dynamic click-through control for selective interaction
 ipcMain.on("set-click-through", (event, enable) => {
   if (mainWindow) {
     mainWindow.setIgnoreMouseEvents(enable, { forward: true });
-    console.log(`🖱️ Click-through ${enable ? "enabled" : "disabled"}`);
   }
 });
 
-ipcMain.on("move-external-window", (event, { windowId, x, y }) => {
-  if (!movingWindows.has(windowId)) startSmoothMovement(windowId);
-  const data = movingWindows.get(windowId);
-  data.velocity.x = x;
-  data.velocity.y = y;
+ipcMain.on("move-external-window", (event, { windowId }) => {
+  animateWindowToRandomDisplayPosition(windowId, screen);
 });
 
 // Set up IPC listeners
@@ -215,7 +190,6 @@ app.whenReady().then(() => {
   (async () => {
     try {
       const processes = await fetchWindows();
-      console.log("Open windows:", JSON.stringify(processes, null, 2));
       // Update NbWindows in renderer debug panel
       if (mainWindow && mainWindow.webContents) {
         mainWindow.webContents.executeJavaScript(
@@ -230,7 +204,6 @@ app.whenReady().then(() => {
   setInterval(async () => {
     try {
       const windows = await fetchWindows();
-      console.log("Open windows:", JSON.stringify(windows, null, 2));
     } catch (err) {
       console.error("Failed to get open windows:", err);
     }
@@ -239,7 +212,6 @@ app.whenReady().then(() => {
   // Auto-run ASJ ghost every 30 seconds
   setInterval(async () => {
     try {
-      console.log("🤖 Auto-running ASJ ghost...");
       const activeWindow = await getActiveWindow();
       const allWindows = await fetchWindows();
       const isIdle = await getDesktopIdleDuration();
@@ -254,7 +226,7 @@ app.whenReady().then(() => {
       // Compose a system prompt that describes the ghost AI and available tools
       const systemPrompt = `
     You are a ghost AI living inside the computer.
-    You should act using these tools:
+    You ALWAYS should act only by using these tools:
     ${availableTools
       .map(
         (t) =>
@@ -305,13 +277,12 @@ app.whenReady().then(() => {
         "args" "<JSON with args needed to call the tool>"
       }`;
 
-      console.log("Prompt:", promptMsg);
-
       const res = await ollama.chat.completions.create({
         model: "mistral",
         messages: [
           // { role: "system", content: systemPrompt },
           { role: "user", content: promptMsg },
+          { role: "system", content: JSON.stringify({ tools }) },
         ],
       });
 

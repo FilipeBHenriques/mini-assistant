@@ -5,6 +5,8 @@ const desktopIdle = require("desktop-idle");
 let lastActiveWindow = null; // Store the last active window that isn't the overlay
 
 function fetchWindows() {
+  // Use a Set to track unique windows by processId+title (as path alone may not be unique)
+  const seen = new Set();
   return windowManager
     .getWindows()
     .filter((w) => {
@@ -28,6 +30,11 @@ function fetchWindows() {
         return false;
       }
 
+      // Compose a unique key using processId and normalized title
+      const key = `${w.processId}:${title}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+
       return true;
     })
     .map((w) => {
@@ -47,7 +54,6 @@ function fetchWindows() {
 
 function getActiveWindow() {
   const activateWindow = windowManager.getActiveWindow();
-  console.log("activateWindow", activateWindow);
 
   // Check if the active window is our overlay electron window
   const isOverlayWindow =
@@ -80,10 +86,9 @@ function getActiveWindow() {
 }
 
 function minimizeWindowbyId(windowId) {
-  console.log("[minimize-external-window] called with windowId:", windowId);
   const windows = fetchWindows();
 
-  const target = windows.find((w) => w.path.includes(windowId));
+  const target = windows.find((w) => w.id === windowId);
 
   if (target && target.window) {
     target.window.minimize(); // ✅ works here
@@ -96,16 +101,10 @@ function minimizeWindowbyId(windowId) {
 }
 
 function maximizeWindowbyId(windowId) {
-  console.log("[maximize-external-window] called with windowId:", windowId);
   const windows = fetchWindows();
 
-  const target = windows.find((w) => w.path.includes(windowId));
+  const target = windows.find((w) => w.id === windowId);
   if (target && target.window) {
-    console.log("[maximize-external-window] Maximizing window:", {
-      id: target.id,
-      path: target.path,
-      title: target.title,
-    });
     target.window.maximize(); // ✅ works here
   } else {
     console.log(
@@ -115,27 +114,53 @@ function maximizeWindowbyId(windowId) {
   }
 }
 
-async function smoothMoveWindowById(windowId, deltaX, deltaY, options = {}) {
-  const steps = options.steps || 60; // number of steps
-  const interval = options.interval || 8; // ms between steps (~120fps)
-
+function getDesktopIdleDuration() {
+  return desktopIdle.getIdleTime();
+}
+function animateWindowToRandomDisplayPosition(windowId, screen) {
   const windows = fetchWindows();
-  console.log("windones fetched", windows);
-  const target = windows.find((w) => w.path.includes(windowId));
+  const target = windows.find(
+    (w) => w.id === windowId || (w.path && w.path.includes(windowId))
+  );
   if (!target || !target.window) {
     console.warn(
-      "[smooth-move-window] No matching window found for windowId:",
+      "[animateWindowToRandomDisplayPosition] No matching window found for windowId:",
       windowId
     );
     return;
   }
 
   const win = target.window;
-  const startBounds = target.bounds;
-  const startX = startBounds.x;
-  const startY = startBounds.y;
-  const width = startBounds.width;
-  const height = startBounds.height;
+  let bounds = target.bounds;
+
+  // If screen provided, use that for screen geometry
+  let display;
+  if (screen && screen.getDisplayMatching && bounds) {
+    display = screen.getDisplayMatching(bounds);
+  }
+
+  // Use display workArea if available, otherwise basic desktop size
+  const screenArea =
+    display && display.workArea
+      ? display.workArea
+      : { x: 0, y: 0, width: 1920, height: 1080 };
+  const winWidth = bounds.width || 400;
+  const winHeight = bounds.height || 300;
+
+  // Prevent positioning outside display
+  const minX = screenArea.x;
+  const minY = screenArea.y;
+  const maxX = screenArea.x + screenArea.width - winWidth;
+  const maxY = screenArea.y + screenArea.height - winHeight;
+  // Generate random position
+  const randX = Math.floor(Math.random() * (maxX - minX + 1)) + minX;
+  const randY = Math.floor(Math.random() * (maxY - minY + 1)) + minY;
+
+  // Animate window to new position (not teleport)
+  const startX = bounds.x;
+  const startY = bounds.y;
+  const steps = 30;
+  const interval = 10; // ms per step
 
   let currentStep = 0;
 
@@ -147,34 +172,32 @@ async function smoothMoveWindowById(windowId, deltaX, deltaY, options = {}) {
   function step() {
     currentStep++;
     const progress = Math.min(currentStep / steps, 1);
-    const easedProgress = easeInOut(progress);
+    const eased = easeInOut(progress);
 
-    const newX = Math.round(startX + deltaX * easedProgress);
-    const newY = Math.round(startY + deltaY * easedProgress);
+    const newX = Math.round(startX + (randX - startX) * eased);
+    const newY = Math.round(startY + (randY - startY) * eased);
 
-    win.setBounds({ x: newX, y: newY, width, height });
+    win.setBounds({ x: newX, y: newY, width: winWidth, height: winHeight });
 
     if (progress < 1) {
       setTimeout(step, interval);
     } else {
-      // ensure exact final position
-      win.setBounds({ x: startX + deltaX, y: startY + deltaY, width, height });
-      console.log("[smooth-move-window] Move complete for windowId:", windowId);
+      // Ensure exact final position
+      win.setBounds({ x: randX, y: randY, width: winWidth, height: winHeight });
+      console.log(
+        `[animateWindowToRandomDisplayPosition] Animation complete for windowId ${windowId} to (${randX}, ${randY})`
+      );
     }
   }
 
   step();
 }
 
-function getDesktopIdleDuration() {
-  return desktopIdle.getIdleTime();
-}
-
 module.exports = {
   fetchWindows,
   minimizeWindowbyId,
   maximizeWindowbyId,
-  smoothMoveWindowById,
   getActiveWindow,
   getDesktopIdleDuration,
+  animateWindowToRandomDisplayPosition,
 };
