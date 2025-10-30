@@ -79,6 +79,7 @@ let targetRotationY = Math.PI / 2;
 let smoothTurnSpeed = 6.0;
 
 let ghostLabel;
+let ghostMessage;
 let labelObj;
 
 const loader = new GLTFLoader();
@@ -97,17 +98,76 @@ loader.load(
     ghostHalfHeight = size.y / 2;
     console.log("✅ Ghost loaded, bounding box:", size);
 
-    // --- Label ---
+    // --- Bottom Label ---
     ghostLabel = document.createElement("div");
     ghostLabel.textContent = `State: ${ghostState}`;
     ghostLabel.style.color = "white";
     ghostLabel.style.fontFamily = "sans-serif";
     ghostLabel.style.fontSize = "16px";
     ghostLabel.style.textShadow = "0 0 5px black";
+    ghostLabel.style.padding = "2px 10px";
+    ghostLabel.style.background = "rgba(0,0,0,0.5)";
+    ghostLabel.style.borderRadius = "12px";
 
     labelObj = new CSS2DObject(ghostLabel);
-    labelObj.position.set(0, -ghostHalfHeight - 0.2, 0);
+    // Place the label on the bottom center, under the ghost
+    labelObj.position.set(0, -ghostHalfHeight - 0.25, 0);
     ghost.add(labelObj);
+
+    // --- Message Bubble at top right ---
+    ghostMessage = document.createElement("div");
+    ghostMessage.textContent = "message"; // Start empty
+    ghostMessage.style.maxWidth = "240px";
+    ghostMessage.style.padding = "8px 16px";
+    ghostMessage.style.background = "rgba(255,255,255,0.94)";
+    ghostMessage.style.color = "#222";
+    ghostMessage.style.fontFamily = "sans-serif";
+    ghostMessage.style.fontSize = "15px";
+    ghostMessage.style.borderRadius = "18px";
+    ghostMessage.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)";
+    ghostMessage.style.border = "2px solid #4442";
+    ghostMessage.style.whiteSpace = "pre-line";
+    ghostMessage.style.textAlign = "left";
+    ghostMessage.style.pointerEvents = "none";
+
+    // Cute speech bubble 'tail' using CSS ::after
+    ghostMessage.style.position = "relative";
+    ghostMessage.style.marginTop = "-70px";
+    ghostMessage.style.marginRight = "0px";
+    ghostMessage.innerHTML =
+      '<span style="position:relative;" id="ghost-msg-txt"></span>';
+
+    // We'll create the "tail" as a sub-element:
+    const tail = document.createElement("div");
+    tail.style.position = "absolute";
+    tail.style.right = "14px";
+    tail.style.top = "100%";
+    tail.style.width = "0";
+    tail.style.height = "0";
+    tail.style.borderLeft = "8px solid transparent";
+    tail.style.borderRight = "8px solid transparent";
+    tail.style.borderTop = "12px solid rgba(255,255,255,0.94)";
+    tail.style.filter = "drop-shadow(0 1px 2px #aaa7)";
+    ghostMessage.appendChild(tail);
+
+    const messageObj = new CSS2DObject(ghostMessage);
+    // Top right corner (relative to ghost bounding box)
+    // X is to the right, Y is above
+    messageObj.position.set(
+      ghostHalfWidth + 0.2, // a little to the right
+      ghostHalfHeight + 0.35, // a little above
+      0
+    );
+    ghost.add(messageObj);
+
+    // Provide a helper function to set the message text
+    window.setGhostMessage = (msg) => {
+      const span = ghostMessage.querySelector("#ghost-msg-txt");
+      if (span) span.textContent = msg;
+      ghostMessage.style.display = msg ? "" : "none";
+    };
+    // Hide initially
+    window.setGhostMessage("");
 
     if (gltf.animations && gltf.animations.length) {
       mixer = new THREE.AnimationMixer(ghost);
@@ -186,12 +246,33 @@ if (window.electronAPI?.onAutoGhostResponse) {
 
     // Update ghost state based on the response
     if (parsed.state === "procrastinating") {
-      ghostState = GhostStates.Angry;
+      setGhostState("Angry");
     } else if (parsed.state === "working") {
-      ghostState = GhostStates.Chill;
+      setGhostState("Chill");
     } else if (parsed.state === "vibing") {
-      ghostState = GhostStates.Sleeping;
+      setGhostState("Sleeping");
+    } else if (parsed.state) {
+      setGhostState("Chill");
     }
+
+    // Test smooth movement tool (smoothMoveActiveWindowToRandomPosition) if available
+    if (
+      tools.smoothMoveActiveWindowToRandomPosition &&
+      typeof tools.smoothMoveActiveWindowToRandomPosition.run === "function"
+    ) {
+      tools.smoothMoveActiveWindowToRandomPosition.run(
+        {},
+        {
+          mainWindow: window.electronAPI,
+          smoothMoveActiveWindowToRandomPosition: (id, x, y) =>
+            window.electronAPI.moveExternal(id, x, y),
+          getActiveWindow: () => window.electronAPI.getActiveWindow(),
+          getWindows: () => window.electronAPI.getWindows(),
+          setGhostMessage: window.setGhostMessage,
+        }
+      );
+    }
+
     // Call the AI tool chosen by the ghost, if it exists and has a run method
     if (
       parsed.tool &&
@@ -201,7 +282,13 @@ if (window.electronAPI?.onAutoGhostResponse) {
       try {
         tools[parsed.tool].run(parsed.args || {}, {
           mainWindow: window.electronAPI,
-          setGhostState,
+          minimizeActiveWindow: (id) => window.electronAPI.minimizeExternal(id),
+          maximizeRandomWindow: (id) => window.electronAPI.maximizeExternal(id),
+          smoothMoveActiveWindowToRandomPosition: (id, x, y) =>
+            window.electronAPI.moveExternal(id, x, y),
+          getActiveWindow: () => window.electronAPI.getActiveWindow(),
+          getWindows: () => window.electronAPI.getWindows(),
+          setGhostMessage: window.setGhostMessage,
         });
       } catch (err) {
         console.warn("Failed to run ghost tool:", parsed.tool, err);
@@ -215,7 +302,6 @@ if (window.electronAPI?.onAutoGhostResponse) {
 // --- Window resize handler ---
 if (window.electronAPI?.onResizeWindow) {
   window.electronAPI.onResizeWindow(({ width, height }) => {
-    console.log(`🖼️ Resizing window to ${width}x${height}`);
     renderer.setSize(width, height);
     labelRenderer.setSize(width, height);
     camera.aspect = width / height;
@@ -752,7 +838,6 @@ function animate() {
 
   if (isFlinging && ghost) {
     const delta = clock.getDelta();
-    console.log("velocti", velocity);
     ghost.position.x += velocity.x * delta;
     ghost.position.y += velocity.y * delta;
     const bounds = getWorldBounds();

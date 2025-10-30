@@ -10,8 +10,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   switchMonitor: () => {
     ipcRenderer.send("switch-monitor");
   },
+  getActiveWindow: () => ipcRenderer.invoke("get-active-window"),
+  getWindows: () => ipcRenderer.invoke("get-windows"),
 
-  getProcesses: () => ipcRenderer.invoke("get-process-list"),
   minimizeExternal: (windowId) =>
     ipcRenderer.send("minimize-external-window", windowId),
   maximizeExternal: (windowId) =>
