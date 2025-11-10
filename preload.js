@@ -35,4 +35,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       callback(size);
     });
   },
+  saveSettings: (settings) => ipcRenderer.invoke("save-settings", settings),
+  getSettings: () => ipcRenderer.invoke("load-settings"),
+  onSettingsSaved: (callback) => ipcRenderer.on("settings-saved", callback),
 });

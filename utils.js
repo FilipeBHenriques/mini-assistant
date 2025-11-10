@@ -1,6 +1,6 @@
 const { windowManager } = require("node-window-manager");
 const path = require("path");
-const desktopIdle = require("desktop-idle");
+const { powerMonitor } = require("electron");
 
 let lastActiveWindow = null; // Store the last active window that isn't the overlay
 
@@ -114,9 +114,10 @@ function maximizeWindowbyId(windowId) {
   }
 }
 
-function getDesktopIdleDuration() {
-  return desktopIdle.getIdleTime();
+async function getDesktopIdleDuration() {
+  return powerMonitor.getSystemIdleTime();
 }
+
 function animateWindowToRandomDisplayPosition(windowId, screen) {
   const windows = fetchWindows();
   const target = windows.find(

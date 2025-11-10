@@ -1,4 +1,13 @@
-const { app, BrowserWindow, screen, ipcMain, Tray, Menu } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  screen,
+  ipcMain,
+  dialog,
+  Tray,
+  Menu,
+  powerMonitor,
+} = require("electron");
 const {
   fetchWindows,
   minimizeWindowbyId,
@@ -8,6 +17,7 @@ const {
   animateWindowToRandomDisplayPosition,
 } = require("./utils.js");
 const { tools } = require("../mini-assistant/src/aiTools.js");
+const fs = require("fs");
 
 const OpenAI = require("openai");
 
@@ -24,10 +34,18 @@ let mainWindow;
 let tray = null;
 let currentDisplayIndex = 0;
 let lastActiveWindow = null; // Store the last active window that isn't the overlay
+let settingsWindow = null;
+
 function createTray() {
   tray = new Tray(path.join(__dirname, "public/logo192.png"));
 
   const contextMenu = Menu.buildFromTemplate([
+    {
+      label: "Settings...",
+      click: () => {
+        openSettingsWindow();
+      },
+    },
     {
       label:
         mainWindow && mainWindow.isVisible() ? "Hide Overlay" : "Show Overlay",
@@ -62,6 +80,36 @@ function createTray() {
     } else {
       mainWindow.show();
     }
+  });
+}
+
+function openSettingsWindow() {
+  if (settingsWindow) {
+    settingsWindow.focus();
+    return;
+  }
+  settingsWindow = new BrowserWindow({
+    width: 800,
+    height: 600,
+    resizable: true,
+    modal: false,
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false,
+      preload: path.join(__dirname, "preload.js"),
+    },
+  });
+  if (isDev) {
+    settingsWindow.loadURL("http://localhost:5173/settings.html");
+    settingsWindow.webContents.openDevTools({ mode: "detach" });
+  } else {
+    settingsWindow.loadFile(path.join(__dirname, "dist/settings.html"));
+  }
+  settingsWindow.once("ready-to-show", () => settingsWindow.show());
+  settingsWindow.on("closed", () => {
+    settingsWindow = null;
   });
 }
 function createWindow() {
@@ -165,8 +213,6 @@ ipcMain.handle("get-windows", async () => {
   return windows;
 });
 
-const movingWindows = new Map();
-
 // Dynamic click-through control for selective interaction
 ipcMain.on("set-click-through", (event, enable) => {
   if (mainWindow) {
@@ -176,6 +222,33 @@ ipcMain.on("set-click-through", (event, enable) => {
 
 ipcMain.on("move-external-window", (event, { windowId }) => {
   animateWindowToRandomDisplayPosition(windowId, screen);
+});
+
+const userDataPath = app.getPath("userData");
+const SETTINGS_FILE = path.join(userDataPath, "ghost-settings.json");
+
+ipcMain.handle("save-settings", async (event, settings) => {
+  try {
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+    BrowserWindow.getAllWindows().forEach((win) => {
+      win.webContents.send("settings-saved");
+    });
+    return true;
+  } catch (err) {
+    console.error("Failed to save settings:", err);
+    return false;
+  }
+});
+
+ipcMain.handle("load-settings", async () => {
+  try {
+    if (!fs.existsSync(SETTINGS_FILE)) return null;
+    const raw = fs.readFileSync(SETTINGS_FILE, "utf-8");
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error("Failed to load settings:", err);
+    return null;
+  }
 });
 
 // Set up IPC listeners
