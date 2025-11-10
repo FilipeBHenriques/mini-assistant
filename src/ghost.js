@@ -13,7 +13,12 @@ import {
   GHOST_WALKING_SPEED,
   GHOST_FLING_DECELERATION,
 } from "./utils/Consts";
-import { tools } from "./aiTools";
+import { tools } from "../src/aiTools.js";
+import {
+  MODEL_MANIFEST,
+  getBuiltinModel,
+  getDefaultModel,
+} from "./utils/modelManifest.js";
 
 const canvas = document.getElementById("ghost-canvas");
 const ghostDragArea = document.getElementById("ghost-drag-area");
@@ -73,119 +78,217 @@ let ghostHalfWidth = GHOST_SIZE.halfWidth;
 let ghostHalfHeight = GHOST_SIZE.halfHeight;
 let mixer = null;
 let walkAction = null;
-let lastDirection = "right";
-let lastNonZeroMove = new THREE.Vector2(1, 0);
-let targetRotationY = Math.PI / 2;
-let smoothTurnSpeed = 6.0;
 
 let ghostLabel;
 let ghostMessage;
 let labelObj;
+let loader = new GLTFLoader();
 
-const loader = new GLTFLoader();
-loader.load(
-  new URL("./assets/ghost2.glb", import.meta.url).href,
-  (gltf) => {
-    ghost = gltf.scene;
-    ghost.scale.set(GHOST_SCALE, GHOST_SCALE, GHOST_SCALE);
-    ghost.position.set(0, 0, 0);
-    scene.add(ghost);
-
-    const box = new THREE.Box3().setFromObject(ghost);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    ghostHalfWidth = size.x / 2;
-    ghostHalfHeight = size.y / 2;
-    console.log("✅ Ghost loaded, bounding box:", size);
-
-    // --- Bottom Label ---
-    ghostLabel = document.createElement("div");
-    ghostLabel.textContent = `State: ${ghostState}`;
-    ghostLabel.style.color = "white";
-    ghostLabel.style.fontFamily = "sans-serif";
-    ghostLabel.style.fontSize = "16px";
-    ghostLabel.style.textShadow = "0 0 5px black";
-    ghostLabel.style.padding = "2px 10px";
-    ghostLabel.style.background = "rgba(0,0,0,0.5)";
-    ghostLabel.style.borderRadius = "12px";
-
-    labelObj = new CSS2DObject(ghostLabel);
-    // Place the label on the bottom center, under the ghost
-    labelObj.position.set(0, -ghostHalfHeight - 0.25, 0);
-    ghost.add(labelObj);
-
-    // --- Message Bubble at top right ---
-    ghostMessage = document.createElement("div");
-    ghostMessage.textContent = "message"; // Start empty
-    ghostMessage.style.maxWidth = "240px";
-    ghostMessage.style.padding = "8px 16px";
-    ghostMessage.style.background = "rgba(255,255,255,0.94)";
-    ghostMessage.style.color = "#222";
-    ghostMessage.style.fontFamily = "sans-serif";
-    ghostMessage.style.fontSize = "15px";
-    ghostMessage.style.borderRadius = "18px";
-    ghostMessage.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)";
-    ghostMessage.style.border = "2px solid #4442";
-    ghostMessage.style.whiteSpace = "pre-line";
-    ghostMessage.style.textAlign = "left";
-    ghostMessage.style.pointerEvents = "none";
-
-    // Cute speech bubble 'tail' using CSS ::after
-    ghostMessage.style.position = "relative";
-    ghostMessage.style.marginTop = "-70px";
-    ghostMessage.style.marginRight = "0px";
-    ghostMessage.innerHTML =
-      '<span style="position:relative;" id="ghost-msg-txt"></span>';
-
-    // We'll create the "tail" as a sub-element:
-    const tail = document.createElement("div");
-    tail.style.position = "absolute";
-    tail.style.right = "14px";
-    tail.style.top = "100%";
-    tail.style.width = "0";
-    tail.style.height = "0";
-    tail.style.borderLeft = "8px solid transparent";
-    tail.style.borderRight = "8px solid transparent";
-    tail.style.borderTop = "12px solid rgba(255,255,255,0.94)";
-    tail.style.filter = "drop-shadow(0 1px 2px #aaa7)";
-    ghostMessage.appendChild(tail);
-
-    const messageObj = new CSS2DObject(ghostMessage);
-    // Top right corner (relative to ghost bounding box)
-    // X is to the right, Y is above
-    messageObj.position.set(
-      ghostHalfWidth + 0.2, // a little to the right
-      ghostHalfHeight + 0.35, // a little above
-      0
-    );
-    ghost.add(messageObj);
-
-    // Provide a helper function to set the message text
-    window.setGhostMessage = (msg) => {
-      const span = ghostMessage.querySelector("#ghost-msg-txt");
-      if (span) span.textContent = msg;
-      ghostMessage.style.display = msg ? "" : "none";
-    };
-    // Hide initially
-    window.setGhostMessage("");
-
-    if (gltf.animations && gltf.animations.length) {
-      mixer = new THREE.AnimationMixer(ghost);
-      walkAction = mixer.clipAction(gltf.animations[0]);
-      walkAction.play();
+// Helper to unload previous ghost from scene
+function removeGhost() {
+  if (ghost) {
+    scene.remove(ghost);
+    ghost = null;
+    // Remove label object if it exists
+    if (labelObj && labelObj.parent) {
+      labelObj.parent.remove(labelObj);
+      labelObj = null;
     }
+    if (ghostLabel && ghostLabel.parentNode) {
+      ghostLabel.parentNode.removeChild(ghostLabel);
+      ghostLabel = null;
+    }
+    // Remove message if it exists
+    if (ghostMessage && ghostMessage.parentNode) {
+      ghostMessage.parentNode.removeChild(ghostMessage);
+      ghostMessage = null;
+    }
+    mixer = null;
+    walkAction = null;
+  }
+}
 
-    // Initialize drag area position
-    updateDragAreaPosition();
+// Generic "getSettings" receiver: always returns a settings object (possibly null)
+async function getSettings() {
+  // Prefer window.electronAPI.getSettings if available, else null
 
-    // Start with click-through enabled (most of window is transparent)
-    window.electronAPI?.setClickThrough(true);
+  try {
+    const s = await window.electronAPI.getSettings();
+    return s || null;
+  } catch (e) {
+    console.warn("Failed to get settings from electron:", e);
+    return null;
+  }
 
-    startGhostBehaviorLoop();
-  },
-  undefined,
-  (err) => console.error("❌ Error loading ghost:", err)
-);
+  return null;
+}
+
+// Generic "getCurrentAssetUrl" receiver: returns the resolved asset url for model (given settings)
+async function getCurrentModelAssetUrl(settings) {
+  let resolvedSettings = settings;
+  if (!resolvedSettings) {
+    resolvedSettings = await getSettings();
+  }
+  // Prefer custom path if specified
+  if (
+    resolvedSettings?.model?.type === "custom" &&
+    resolvedSettings.model.path
+  ) {
+    return resolvedSettings.model.path;
+  }
+  // Otherwise try builtin
+  const builtin = getBuiltinModel(resolvedSettings?.model?.id || "");
+  if (builtin && builtin.assetUrl) {
+    return builtin.assetUrl;
+  }
+  // Fallback to default
+  const def = getDefaultModel();
+  if (def && def.assetUrl) return def.assetUrl;
+  // Last resort
+  if (MODEL_MANIFEST.length && MODEL_MANIFEST[0].assetUrl)
+    return MODEL_MANIFEST[0].assetUrl;
+  // Not found
+  return null;
+}
+
+// This is the main routine for loading and applying the ghost model
+async function loadAndApplyGhost() {
+  // Unload previous ghost from scene
+  removeGhost();
+  const settings = await getSettings();
+  const assetUrl = await getCurrentModelAssetUrl(settings);
+  if (!assetUrl) {
+    console.error("❌ Failed to resolve ghost model asset URL.");
+    return;
+  }
+  console.log("settings", settings);
+
+  loader.load(
+    assetUrl,
+    (gltf) => {
+      ghost = gltf.scene;
+      ghost.scale.set(GHOST_SCALE, GHOST_SCALE, GHOST_SCALE);
+      ghost.position.set(0, 0, 0);
+      scene.add(ghost);
+
+      const box = new THREE.Box3().setFromObject(ghost);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      // Scale the ghost based on settings.model.size if available, else use GHOST_SCALE
+      let scale = GHOST_SCALE;
+      if (
+        settings &&
+        settings.model &&
+        typeof settings.model.size === "number" &&
+        settings.model.size > 0
+      ) {
+        // settings.model.size is assumed as a number, e.g., from 0-100 for a slider
+        // We'll treat size 50 (default slider) as "normal"/"GHOST_SCALE"
+        const normalized = settings.model.size / 50;
+        scale = GHOST_SCALE * normalized;
+      }
+      ghost.scale.set(scale, scale, scale);
+      ghostHalfWidth = size.x / 2;
+      ghostHalfHeight = size.y / 2;
+      console.log("✅ Ghost loaded, bounding box:", size);
+
+      // --- Bottom Label ---
+      ghostLabel = document.createElement("div");
+      ghostLabel.textContent = `State: ${ghostState}`;
+      ghostLabel.style.color = "white";
+      ghostLabel.style.fontFamily = "sans-serif";
+      ghostLabel.style.fontSize = "16px";
+      ghostLabel.style.textShadow = "0 0 5px black";
+      ghostLabel.style.padding = "2px 10px";
+      ghostLabel.style.background = "rgba(0,0,0,0.5)";
+      ghostLabel.style.borderRadius = "12px";
+
+      labelObj = new CSS2DObject(ghostLabel);
+      // Place the label on the bottom center, under the ghost
+      labelObj.position.set(0, -ghostHalfHeight - 0.25, 0);
+      ghost.add(labelObj);
+
+      // --- Message Bubble at top right ---
+      ghostMessage = document.createElement("div");
+      ghostMessage.textContent = "message"; // Start empty
+      ghostMessage.style.maxWidth = "240px";
+      ghostMessage.style.padding = "8px 16px";
+      ghostMessage.style.background = "rgba(255,255,255,0.94)";
+      ghostMessage.style.color = "#222";
+      ghostMessage.style.fontFamily = "sans-serif";
+      ghostMessage.style.fontSize = "15px";
+      ghostMessage.style.borderRadius = "18px";
+      ghostMessage.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)";
+      ghostMessage.style.border = "2px solid #4442";
+      ghostMessage.style.whiteSpace = "pre-line";
+      ghostMessage.style.textAlign = "left";
+      ghostMessage.style.pointerEvents = "none";
+
+      // Cute speech bubble 'tail' using CSS ::after
+      ghostMessage.style.position = "relative";
+      ghostMessage.style.marginTop = "-70px";
+      ghostMessage.style.marginRight = "0px";
+      ghostMessage.innerHTML =
+        '<span style="position:relative;" id="ghost-msg-txt"></span>';
+
+      // We'll create the "tail" as a sub-element:
+      const tail = document.createElement("div");
+      tail.style.position = "absolute";
+      tail.style.right = "14px";
+      tail.style.top = "100%";
+      tail.style.width = "0";
+      tail.style.height = "0";
+      tail.style.borderLeft = "8px solid transparent";
+      tail.style.borderRight = "8px solid transparent";
+      tail.style.borderTop = "12px solid rgba(255,255,255,0.94)";
+      tail.style.filter = "drop-shadow(0 1px 2px #aaa7)";
+      ghostMessage.appendChild(tail);
+
+      const messageObj = new CSS2DObject(ghostMessage);
+      // Top right corner (relative to ghost bounding box)
+      // X is to the right, Y is above
+      messageObj.position.set(
+        ghostHalfWidth + 0.2, // a little to the right
+        ghostHalfHeight + 0.35, // a little above
+        0
+      );
+      ghost.add(messageObj);
+
+      // Provide a helper function to set the message text
+      window.setGhostMessage = (msg) => {
+        const span = ghostMessage.querySelector("#ghost-msg-txt");
+        if (span) span.textContent = msg;
+        ghostMessage.style.display = msg ? "" : "none";
+      };
+      // Hide initially
+      window.setGhostMessage("");
+
+      if (gltf.animations && gltf.animations.length) {
+        mixer = new THREE.AnimationMixer(ghost);
+        walkAction = mixer.clipAction(gltf.animations[1]);
+        walkAction.play();
+      }
+
+      // Initialize drag area position
+      updateDragAreaPosition();
+
+      // Start with click-through enabled (most of window is transparent)
+      window.electronAPI?.setClickThrough(true);
+
+      startGhostBehaviorLoop();
+    },
+    undefined,
+    (err) => console.error("❌ Error loading ghost:", err)
+  );
+}
+
+// Initial load
+loadAndApplyGhost();
+
+// Listen for settings saved: change the ghost model live
+window.electronAPI.onSettingsSaved(async () => {
+  await loadAndApplyGhost();
+});
 
 // --- Monitor & external window control ---
 function switchMonitor() {
