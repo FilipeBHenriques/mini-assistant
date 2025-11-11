@@ -529,7 +529,6 @@ document.addEventListener("mouseup", () => {
 
 // --- Fling update per frame ---
 function updateFling(delta) {
-  console.log("isflingin", isFlinging);
   if (!isFlinging || !ghost) return;
 
   ghost.position.x += velocity.x * delta;
@@ -581,6 +580,80 @@ function getWorldBounds() {
   };
 }
 
+// The ghost randomly moves to a new random position from time to time,
+// but ONLY if it is not being dragged or flung.
+let currentAction = null;
+
+let nextRandomMoveTime = performance.now() + 2000 + Math.random() * 2000; // ms
+
+let moveTarget = null;
+let moveSpeed = 2; // units per second, tweak as needed
+function movementLoop(delta) {
+  if (!ghost || isDragging || isFlinging) {
+    moveTarget = null;
+    nextRandomMoveTime = performance.now() + 2000 + Math.random() * 2000;
+    return;
+  }
+
+  const now = performance.now();
+
+  let isMoving = false;
+
+  if (moveTarget) {
+    const dx = moveTarget.x - ghost.position.x;
+    const dy = moveTarget.y - ghost.position.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    const step = moveSpeed * delta;
+
+    if (dist <= step) {
+      ghost.position.x = moveTarget.x;
+      ghost.position.y = moveTarget.y;
+      moveTarget = null;
+      nextRandomMoveTime = now + 2000 + Math.random() * 2000;
+    } else {
+      ghost.position.x += (dx / dist) * step;
+      ghost.position.y += (dy / dist) * step;
+      isMoving = true; // mark that ghost is moving
+    }
+  }
+
+  // Pick new random target if time
+  if (!moveTarget && now >= nextRandomMoveTime) {
+    const bounds = getWorldBounds();
+    const x =
+      Math.random() * (bounds.xMax - bounds.xMin - 2 * ghostHalfWidth) +
+      bounds.xMin +
+      ghostHalfWidth;
+    const y =
+      Math.random() * (bounds.yMax - bounds.yMin - 2 * ghostHalfHeight) +
+      bounds.yMin +
+      ghostHalfHeight;
+    moveTarget = { x, y };
+  }
+
+  // Play walking animation if ghost is moving
+  if (isMoving) {
+    currentAction = playClipForState(
+      mixer,
+      rehydratedAnimations,
+      ghost.animations,
+      "walking",
+      currentAction
+    );
+  } else {
+    currentAction = playClipForState(
+      mixer,
+      rehydratedAnimations,
+      ghost.animations,
+      "idle",
+      currentAction
+    );
+  }
+
+  updateDragAreaPosition();
+}
+
 /**
  * --- Animation loop ---
  * This loop is now focused on rendering & misc updates,
@@ -593,6 +666,8 @@ function animate() {
   if (mixer) mixer.update(delta);
 
   updateFling(delta);
+
+  movementLoop(delta);
 
   renderer.render(scene, camera);
   if (labelRenderer) labelRenderer.render(scene, camera);

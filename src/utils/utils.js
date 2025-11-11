@@ -18,22 +18,44 @@ function worldToScreen(pos, camera) {
   };
 }
 
-function playClipForState(mixer, rehydratedAnimations, gltfAnimations, state) {
+function playClipForState(
+  mixer,
+  rehydratedAnimations,
+  gltfAnimations,
+  state,
+  currentAction
+) {
   if (!mixer) return null;
+
+  // Try to get the clip for the state
   let clip =
     (rehydratedAnimations && rehydratedAnimations[state]) ||
     (gltfAnimations && gltfAnimations.find((c) => c.name === state));
-  // fallback to first GLTF animation if no matching, only for "walking"
-  if (!clip && gltfAnimations && gltfAnimations.length)
+
+  // Fallback to first animation if nothing matches (optional, e.g., for walking)
+  if (!clip && gltfAnimations && gltfAnimations.length) {
     clip = gltfAnimations[0];
+  }
 
   if (!clip) return null;
 
-  const action = mixer.clipAction(clip);
-  console.log("action is ", action);
-  action.reset();
-  action.play();
-  return action;
+  // If this clip is already playing, do nothing
+  if (currentAction && currentAction.getClip() === clip) {
+    return currentAction;
+  }
+
+  // Stop previous action
+  if (currentAction) {
+    currentAction.fadeOut(0.2); // smooth transition
+  }
+
+  // Start the new action
+  currentAction = mixer.clipAction(clip);
+  currentAction.reset();
+  currentAction.fadeIn(0.2); // smooth transition
+  currentAction.play();
+
+  return currentAction;
 }
 
 export { screenToWorld, worldToScreen, playClipForState };
