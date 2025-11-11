@@ -18,4 +18,22 @@ function worldToScreen(pos, camera) {
   };
 }
 
-export { screenToWorld, worldToScreen };
+function playClipForState(mixer, rehydratedAnimations, gltfAnimations, state) {
+  if (!mixer) return null;
+  let clip =
+    (rehydratedAnimations && rehydratedAnimations[state]) ||
+    (gltfAnimations && gltfAnimations.find((c) => c.name === state));
+  // fallback to first GLTF animation if no matching, only for "walking"
+  if (!clip && gltfAnimations && gltfAnimations.length)
+    clip = gltfAnimations[0];
+
+  if (!clip) return null;
+
+  const action = mixer.clipAction(clip);
+  console.log("action is ", action);
+  action.reset();
+  action.play();
+  return action;
+}
+
+export { screenToWorld, worldToScreen, playClipForState };
