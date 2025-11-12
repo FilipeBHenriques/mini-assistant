@@ -145,7 +145,6 @@ async function loadAndApplyGhost() {
     console.error("❌ Failed to resolve ghost model asset URL.");
     return;
   }
-  console.log("settings", settings);
 
   loader.load(
     assetUrl,
@@ -177,8 +176,6 @@ async function loadAndApplyGhost() {
       newBox.getSize(newSize);
       ghostHalfWidth = newSize.x / 2;
       ghostHalfHeight = newSize.y / 2;
-
-      console.log("✅ Ghost loaded, bounding box (scaled):", newSize);
 
       // --- Bottom Label ---
       ghostLabel = document.createElement("div");
@@ -660,11 +657,8 @@ function updateGenericMovement(delta) {
   const dist = Math.sqrt(dx * dx + dy * dy);
   const step = genericMoveSpeed * delta;
 
-  console.log("updating movement", dist, step, "margin");
-
   // ✅ If we can reach or overshoot the target this frame
   if (dist <= step) {
-    console.log("im in");
     ghost.position.x = genericTarget.x;
     ghost.position.y = genericTarget.y;
 
@@ -751,15 +745,6 @@ function moveToWindowCorner(window, corner, callback) {
   const worldBounds = getWorldBounds();
   const worldX = (ndcX * (worldBounds.xMax - worldBounds.xMin)) / 2;
   const worldY = (ndcY * (worldBounds.yMax - worldBounds.yMin)) / 2;
-
-  console.log(
-    "moving ghost to window corner at screen:",
-    screenX,
-    screenY,
-    "world:",
-    worldX,
-    worldY
-  );
 
   moveGhostTo(worldX, worldY, 5, callback);
 
