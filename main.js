@@ -15,6 +15,7 @@ const {
   getActiveWindow,
   getDesktopIdleDuration,
   animateWindowToRandomDisplayPosition,
+  moveToWindowCorner,
 } = require("./utils.js");
 const { tools } = require("../mini-assistant/src/aiTools.js");
 const fs = require("fs");
@@ -127,7 +128,8 @@ function createWindowOnDisplay(displayIndex) {
   if (!displays[displayIndex]) return;
 
   const display = displays[displayIndex];
-  const { x, y, width, height } = display.bounds;
+  const { x, y, width, height, inne } = display.workArea; // or workAreaSize
+  const scale = display.scaleFactor;
 
   console.log(
     `Creating window on display ${displayIndex}: ${width}x${height} at (${x}, ${y})`
@@ -135,13 +137,15 @@ function createWindowOnDisplay(displayIndex) {
 
   if (mainWindow) {
     // Move & resize the window
-    mainWindow.setBounds({ x, y, width, height });
+    console.log("width height2", width, height, width / scale, height / scale);
+    mainWindow.setBounds(display.workArea);
     // Send new size to renderer so it can update Three.js
     mainWindow.webContents.send("resize-window", { width, height });
   } else {
+    console.log("width height", width, height, width / scale, height / scale);
     mainWindow = new BrowserWindow({
-      width,
-      height,
+      width: width / scale,
+      height: height / scale,
       x,
       y,
       transparent: true,

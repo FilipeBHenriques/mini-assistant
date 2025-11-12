@@ -6,11 +6,9 @@ import {
 } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import {
   GHOST_SCALE,
-  GHOST_INITIAL_VELOCITY,
   GHOST_MIN_FLING_SPEED,
   GHOST_SIZE,
   GhostStates,
-  GHOST_WALKING_SPEED,
   GHOST_FLING_DECELERATION,
 } from "./utils/Consts";
 import { tools } from "../src/aiTools.js";
@@ -33,15 +31,6 @@ if (!ghostDragArea) {
 }
 
 let ghostState = GhostStates.Chill; // default state
-
-// ---- Debug Utility ----
-function setDebugFunctionCall(name) {
-  // Find a section with id="debug" in index.html and show what's being called
-  const debugDiv = document.getElementById("debugFunction");
-  if (debugDiv) {
-    debugDiv.textContent = "Ghost Behavior: " + name;
-  }
-}
 
 // Scene & camera
 const scene = new THREE.Scene();
@@ -114,7 +103,6 @@ function removeGhost() {
 
 // Generic "getSettings" receiver: always returns a settings object (possibly null)
 async function getSettings() {
-  // Prefer window.electronAPI.getSettings if available, else null
   try {
     const s = await window.electronAPI.getSettings();
     return s || null;
@@ -122,7 +110,6 @@ async function getSettings() {
     console.warn("Failed to get settings from electron:", e);
     return null;
   }
-
   return null;
 }
 
@@ -132,31 +119,25 @@ async function getCurrentModelAssetUrl(settings) {
   if (!resolvedSettings) {
     resolvedSettings = await getSettings();
   }
-  // Prefer custom path if specified
   if (
     resolvedSettings?.model?.type === "custom" &&
     resolvedSettings.model.path
   ) {
     return resolvedSettings.model.path;
   }
-  // Otherwise try builtin
   const builtin = getBuiltinModel(resolvedSettings?.model?.id || "");
   if (builtin && builtin.assetUrl) {
     return builtin.assetUrl;
   }
-  // Fallback to default
   const def = getDefaultModel();
   if (def && def.assetUrl) return def.assetUrl;
-  // Last resort
   if (MODEL_MANIFEST.length && MODEL_MANIFEST[0].assetUrl)
     return MODEL_MANIFEST[0].assetUrl;
-  // Not found
   return null;
 }
 
 // This is the main routine for loading and applying the ghost model
 async function loadAndApplyGhost() {
-  // Unload previous ghost from scene
   removeGhost();
   const settings = await getSettings();
   const assetUrl = await getCurrentModelAssetUrl(settings);
@@ -177,7 +158,7 @@ async function loadAndApplyGhost() {
       const box = new THREE.Box3().setFromObject(ghost);
       const size = new THREE.Vector3();
       box.getSize(size);
-      // Scale the ghost based on settings.model.size if available, else use GHOST_SCALE
+
       let scale = GHOST_SCALE;
       if (
         settings &&
@@ -185,15 +166,19 @@ async function loadAndApplyGhost() {
         typeof settings.model.size === "number" &&
         settings.model.size > 0
       ) {
-        // settings.model.size is assumed as a number, e.g., from 0-100 for a slider
-        // We'll treat size 50 (default slider) as "normal"/"GHOST_SCALE"
         const normalized = settings.model.size / 50;
         scale = GHOST_SCALE * normalized;
       }
       ghost.scale.set(scale, scale, scale);
-      ghostHalfWidth = size.x / 2;
-      ghostHalfHeight = size.y / 2;
-      console.log("✅ Ghost loaded, bounding box:", size);
+
+      // IMPORTANT: recalc bounding box *after* scaling!
+      const newBox = new THREE.Box3().setFromObject(ghost);
+      const newSize = new THREE.Vector3();
+      newBox.getSize(newSize);
+      ghostHalfWidth = newSize.x / 2;
+      ghostHalfHeight = newSize.y / 2;
+
+      console.log("✅ Ghost loaded, bounding box (scaled):", newSize);
 
       // --- Bottom Label ---
       ghostLabel = document.createElement("div");
@@ -207,13 +192,12 @@ async function loadAndApplyGhost() {
       ghostLabel.style.borderRadius = "12px";
 
       labelObj = new CSS2DObject(ghostLabel);
-      // Place the label on the bottom center, under the ghost
       labelObj.position.set(0, -ghostHalfHeight - 0.25, 0);
       ghost.add(labelObj);
 
       // --- Message Bubble at top right ---
       ghostMessage = document.createElement("div");
-      ghostMessage.textContent = "message"; // Start empty
+      ghostMessage.textContent = "message";
       ghostMessage.style.maxWidth = "240px";
       ghostMessage.style.padding = "8px 16px";
       ghostMessage.style.background = "rgba(255,255,255,0.94)";
@@ -226,15 +210,12 @@ async function loadAndApplyGhost() {
       ghostMessage.style.whiteSpace = "pre-line";
       ghostMessage.style.textAlign = "left";
       ghostMessage.style.pointerEvents = "none";
-
-      // Cute speech bubble 'tail' using CSS ::after
       ghostMessage.style.position = "relative";
       ghostMessage.style.marginTop = "-70px";
       ghostMessage.style.marginRight = "0px";
       ghostMessage.innerHTML =
         '<span style="position:relative;" id="ghost-msg-txt"></span>';
 
-      // We'll create the "tail" as a sub-element:
       const tail = document.createElement("div");
       tail.style.position = "absolute";
       tail.style.right = "14px";
@@ -248,22 +229,14 @@ async function loadAndApplyGhost() {
       ghostMessage.appendChild(tail);
 
       const messageObj = new CSS2DObject(ghostMessage);
-      // Top right corner (relative to ghost bounding box)
-      // X is to the right, Y is above
-      messageObj.position.set(
-        ghostHalfWidth + 0.2, // a little to the right
-        ghostHalfHeight + 0.35, // a little above
-        0
-      );
+      messageObj.position.set(ghostHalfWidth + 0.2, ghostHalfHeight + 0.35, 0);
       ghost.add(messageObj);
 
-      // Provide a helper function to set the message text
       window.setGhostMessage = (msg) => {
         const span = ghostMessage.querySelector("#ghost-msg-txt");
         if (span) span.textContent = msg;
         ghostMessage.style.display = msg ? "" : "none";
       };
-      // Hide initially
       window.setGhostMessage("");
 
       if (gltf.animations && gltf.animations.length) {
@@ -289,45 +262,31 @@ async function loadAndApplyGhost() {
         }
       }
 
-      // Initialize drag area position
       updateDragAreaPosition();
-
-      // Start with click-through enabled (most of window is transparent)
       window.electronAPI?.setClickThrough(true);
-
-      // startGhostBehaviorLoop();
     },
     undefined,
     (err) => console.error("❌ Error loading ghost:", err)
   );
 }
 
-// Initial load
 loadAndApplyGhost();
 
-// Listen for settings saved: change the ghost model live
 window.electronAPI.onSettingsSaved(async () => {
   await loadAndApplyGhost();
 });
 
-// --- Monitor & external window control ---
 function switchMonitor() {
   if (window.electronAPI?.switchMonitor) window.electronAPI.switchMonitor();
 }
 
-// --- Util: Get a random open/active window ID from Electron
 async function getRandomActiveWindowId() {
-  // Assumes electronAPI.getOpenWindows returns list like [{ id, processName, title, ... }, ...]
   if (window.electronAPI?.getOpenWindows) {
     try {
       const windows = await window.electronAPI.getOpenWindows();
       if (Array.isArray(windows) && windows.length > 0) {
-        // pick a random window (not ourselves if possible)
-        // Exclude our own process/window (if we can detect)
         const filtered = windows.filter(
-          (w) =>
-            !w.isGhostWindow && // (Optional: If electron marks its own ghost window)
-            !/ghost/i.test(w.title || "") // by window title fallback
+          (w) => !w.isGhostWindow && !/ghost/i.test(w.title || "")
         );
         const candidateList = filtered.length > 0 ? filtered : windows;
         return candidateList[Math.floor(Math.random() * candidateList.length)]
@@ -343,10 +302,8 @@ async function getRandomActiveWindowId() {
 }
 
 function setGhostState(state) {
-  // Change the in-memory ghost state and optionally trigger animation/sprite swap
   if (GhostStates[state]) {
     ghostState = GhostStates[state];
-    // Optionally update label/UI
     if (ghostLabel) ghostLabel.textContent = `AI: ${state}`;
   } else {
     console.warn(`Unknown ghost state: ${state}`);
@@ -365,7 +322,6 @@ if (window.electronAPI?.onAutoGhostResponse) {
       parsed = { state: "unknown", reasoning: ghostResponse };
     }
 
-    // Update ghost state based on the response
     if (parsed.state === "procrastinating") {
       setGhostState("Angry");
     } else if (parsed.state === "working") {
@@ -375,7 +331,6 @@ if (window.electronAPI?.onAutoGhostResponse) {
     } else if (parsed.state) {
       setGhostState("Chill");
     }
-    // Call the AI tool chosen by the ghost, if it exists and has a run method
     if (
       parsed.tool &&
       tools[parsed.tool] &&
@@ -384,7 +339,21 @@ if (window.electronAPI?.onAutoGhostResponse) {
       try {
         tools[parsed.tool].run(parsed.args || {}, {
           mainWindow: window.electronAPI,
-          minimizeActiveWindow: (id) => window.electronAPI.minimizeExternal(id),
+          minimizeActiveWindow: async (id) => {
+            const windows = await window.electronAPI.getWindows();
+            const target = windows.find((w) => w.id === id);
+            moveToWindowCorner(target, "topRight", () => {
+              // This callback runs when the ghost reaches the corner
+              window.electronAPI.minimizeExternal(id);
+            });
+            currentAction = playClipForState(
+              mixer,
+              rehydratedAnimations,
+              ghost.animations,
+              "dragged",
+              currentAction
+            );
+          },
           maximizeRandomWindow: (id) => window.electronAPI.maximizeExternal(id),
           smoothMoveActiveWindowToRandomPosition: (id, x, y) =>
             window.electronAPI.moveExternal(id, x, y),
@@ -401,7 +370,6 @@ if (window.electronAPI?.onAutoGhostResponse) {
   });
 }
 
-// --- Window resize handler ---
 if (window.electronAPI?.onResizeWindow) {
   window.electronAPI.onResizeWindow(({ width, height }) => {
     renderer.setSize(width, height);
@@ -418,7 +386,7 @@ let dragOffset = { x: 0, y: 0 };
 let lastMouse = { x: 0, y: 0 };
 let mouseVel = { x: 0, y: 0 };
 let isFlinging = false;
-const velocity = new THREE.Vector3(0, 0, 0); // Start at zero
+const velocity = new THREE.Vector3(0, 0, 0);
 
 // Function to update drag area position based on ghost position
 function updateDragAreaPosition() {
@@ -471,6 +439,15 @@ ghostDragArea.addEventListener("mousedown", (e) => {
   mouseVel.y = 0;
   velocity.set(0, 0, 0);
 
+  // --- PLAY DRAGGED ANIMATION on mousedown ---
+  currentAction = playClipForState(
+    mixer,
+    rehydratedAnimations,
+    ghost?.animations,
+    "dragging",
+    currentAction
+  );
+
   e.preventDefault();
 });
 
@@ -498,6 +475,15 @@ document.addEventListener("mousemove", (e) => {
   lastMouse.y = e.clientY;
 
   updateDragAreaPosition();
+
+  // --- PLAY DRAGGED ANIMATION during dragging ---
+  currentAction = playClipForState(
+    mixer,
+    rehydratedAnimations,
+    ghost?.animations,
+    "dragging",
+    currentAction
+  );
 });
 
 document.addEventListener("mouseup", () => {
@@ -518,13 +504,21 @@ document.addEventListener("mouseup", () => {
 
   // Minimum velocity threshold to avoid tiny flings
   const minSpeed = GHOST_MIN_FLING_SPEED || 0.02;
-  console.log("velocity is ", velocity);
   if (velocity.length() < minSpeed) {
     velocity.set(0, 0, 0);
     isFlinging = false;
   } else {
     isFlinging = true;
   }
+
+  // --- PLAY DRAGGED ANIMATION during dragging ---
+  currentAction = playClipForState(
+    mixer,
+    rehydratedAnimations,
+    ghost?.animations,
+    "dragged",
+    currentAction
+  );
 });
 
 // --- Fling update per frame ---
@@ -536,7 +530,6 @@ function updateFling(delta) {
 
   const bounds = getWorldBounds();
 
-  // Bounce off edges
   if (ghost.position.x > bounds.xMax - ghostHalfWidth) {
     velocity.x *= -1;
     ghost.position.x = bounds.xMax - ghostHalfWidth;
@@ -553,11 +546,9 @@ function updateFling(delta) {
     ghost.position.y = bounds.yMin + ghostHalfHeight;
   }
 
-  // Deceleration
   const decel = Math.pow(GHOST_FLING_DECELERATION, delta);
   velocity.multiplyScalar(decel);
 
-  // Stop when velocity is very low
   if (velocity.length() < 0.01 || isNaN(velocity.length())) {
     velocity.set(0, 0, 0);
     isFlinging = false;
@@ -587,7 +578,7 @@ let currentAction = null;
 let nextRandomMoveTime = performance.now() + 2000 + Math.random() * 2000; // ms
 
 let moveTarget = null;
-let moveSpeed = 2; // units per second, tweak as needed
+let moveSpeed = 2;
 function movementLoop(delta) {
   if (!ghost || isDragging || isFlinging) {
     moveTarget = null;
@@ -596,7 +587,6 @@ function movementLoop(delta) {
   }
 
   const now = performance.now();
-
   let isMoving = false;
 
   if (moveTarget) {
@@ -614,11 +604,10 @@ function movementLoop(delta) {
     } else {
       ghost.position.x += (dx / dist) * step;
       ghost.position.y += (dy / dist) * step;
-      isMoving = true; // mark that ghost is moving
+      isMoving = true;
     }
   }
 
-  // Pick new random target if time
   if (!moveTarget && now >= nextRandomMoveTime) {
     const bounds = getWorldBounds();
     const x =
@@ -632,7 +621,7 @@ function movementLoop(delta) {
     moveTarget = { x, y };
   }
 
-  // Play walking animation if ghost is moving
+  // Play walking animation if ghost is moving, otherwise idle
   if (isMoving) {
     currentAction = playClipForState(
       mixer,
@@ -654,11 +643,137 @@ function movementLoop(delta) {
   updateDragAreaPosition();
 }
 
-/**
- * --- Animation loop ---
- * This loop is now focused on rendering & misc updates,
- * and hands off the "ghost intent" behaviors to the above logic.
- */
+let genericTarget = null;
+let genericMoveSpeed = 2;
+let genericMoveCallback = null;
+
+export function moveGhostTo(x, y, speed = genericMoveSpeed, callback) {
+  genericTarget = new THREE.Vector3(x, y, 0);
+  genericMoveSpeed = speed;
+  genericMoveCallback = callback;
+}
+function updateGenericMovement(delta) {
+  if (!ghost || !genericTarget) return;
+
+  const dx = genericTarget.x - ghost.position.x;
+  const dy = genericTarget.y - ghost.position.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const step = genericMoveSpeed * delta;
+
+  console.log("updating movement", dist, step, "margin");
+
+  // ✅ If we can reach or overshoot the target this frame
+  if (dist <= step) {
+    console.log("im in");
+    ghost.position.x = genericTarget.x;
+    ghost.position.y = genericTarget.y;
+
+    // Call callback **once**
+    if (genericMoveCallback) {
+      const cb = genericMoveCallback;
+      genericMoveCallback = null;
+      cb(); // ← will run minimizeExternal() now
+    }
+
+    genericTarget = null;
+  } else {
+    ghost.position.x += (dx / dist) * step;
+    ghost.position.y += (dy / dist) * step;
+  }
+
+  // Clamp to world bounds
+  const bounds = getWorldBounds();
+  const clampedX = Math.max(
+    bounds.xMin + ghostHalfWidth,
+    Math.min(bounds.xMax - ghostHalfWidth, ghost.position.x)
+  );
+  const clampedY = Math.max(
+    bounds.yMin + ghostHalfHeight,
+    Math.min(bounds.yMax - ghostHalfHeight, ghost.position.y)
+  );
+
+  ghost.position.x = clampedX;
+  ghost.position.y = clampedY;
+
+  // ✅ If we reach the target OR hit the bounds, consider it arrived
+  if (
+    (Math.abs(clampedX - genericTarget.x) < 0.01 &&
+      Math.abs(clampedY - genericTarget.y) < 0.01) || // reached target
+    clampedX === bounds.xMin + ghostHalfWidth ||
+    clampedX === bounds.xMax - ghostHalfWidth ||
+    clampedY === bounds.yMin + ghostHalfHeight ||
+    clampedY === bounds.yMax - ghostHalfHeight // hit bounds
+  ) {
+    genericTarget = null;
+    if (genericMoveCallback) {
+      const cb = genericMoveCallback;
+      cb();
+      genericMoveCallback = null;
+    }
+  }
+
+  updateDragAreaPosition();
+}
+
+function moveToWindowCorner(window, corner, callback) {
+  if (!window || !ghost) return;
+
+  const bounds = window.bounds; // { x, y, width, height }
+
+  // Default: center of ghost aligns with screen corner
+  let screenX = bounds.x;
+  let screenY = bounds.y;
+
+  switch (corner) {
+    case "topLeft":
+      screenX += ghostHalfWidth * 2; // offset by ghost half-width
+      screenY += ghostHalfHeight * 2;
+      break;
+    case "topRight":
+      screenX = bounds.x + bounds.width - ghostHalfWidth * 2;
+      screenY += ghostHalfHeight * 2;
+      break;
+    case "bottomLeft":
+      screenX += ghostHalfWidth;
+      screenY = bounds.y + bounds.height - ghostHalfHeight;
+      break;
+    case "bottomRight":
+      screenX = bounds.x + bounds.width - ghostHalfWidth;
+      screenY = bounds.y + bounds.height - ghostHalfHeight;
+      break;
+  }
+
+  // Convert screen coordinates to normalized device coordinates (-1 to 1)
+  const ndcX = (screenX / renderer.domElement.width) * 2 - 1;
+  const ndcY = -(screenY / renderer.domElement.height) * 2 + 1;
+
+  // Convert NDC to world space
+  const worldBounds = getWorldBounds();
+  const worldX = (ndcX * (worldBounds.xMax - worldBounds.xMin)) / 2;
+  const worldY = (ndcY * (worldBounds.yMax - worldBounds.yMin)) / 2;
+
+  console.log(
+    "moving ghost to window corner at screen:",
+    screenX,
+    screenY,
+    "world:",
+    worldX,
+    worldY
+  );
+
+  moveGhostTo(worldX, worldY, 5, callback);
+
+  // Trigger dragged animation if available
+  currentAction = playClipForState(
+    mixer,
+    rehydratedAnimations,
+    ghost.animations,
+    "dragged",
+    currentAction
+  );
+}
+
+// --- Animation loop ---
 function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
@@ -666,8 +781,8 @@ function animate() {
   if (mixer) mixer.update(delta);
 
   updateFling(delta);
-
   movementLoop(delta);
+  updateGenericMovement(delta);
 
   renderer.render(scene, camera);
   if (labelRenderer) labelRenderer.render(scene, camera);
