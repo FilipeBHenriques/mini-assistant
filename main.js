@@ -15,7 +15,7 @@ const {
   getActiveWindow,
   getDesktopIdleDuration,
   animateWindowToRandomDisplayPosition,
-  moveToWindowCorner,
+  ghostMouseGrab,
 } = require("./utils.js");
 const { tools } = require("../mini-assistant/src/aiTools.js");
 const fs = require("fs");
@@ -259,6 +259,38 @@ ipcMain.handle("load-settings", async () => {
 ipcMain.on("switch-monitor", () => {
   cycleDisplay();
 });
+
+// IPC listener for mouse grab
+ipcMain.on(
+  "ghost-grab-mouse",
+  (
+    event,
+    {
+      durationMs = 3000,
+      pullDistance = 30,
+      targetX,
+      targetY,
+      corner = null,
+      behavior = null,
+    }
+  ) => {
+    ghostMouseGrab(
+      (pos) => {
+        event.sender.send("ghost-move-coords", {
+          x: Math.round(pos.x),
+          y: Math.round(pos.y),
+        });
+      },
+      durationMs,
+      pullDistance,
+      targetX,
+      targetY,
+      corner,
+      behavior
+    );
+  }
+);
+
 app.whenReady().then(() => {
   createWindow();
   createTray();
