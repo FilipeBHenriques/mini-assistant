@@ -1,6 +1,7 @@
 const { windowManager } = require("node-window-manager");
 const path = require("path");
 const { powerMonitor } = require("electron");
+const robot = require("@hurdlegroup/robotjs");
 
 let lastActiveWindow = null; // Store the last active window that isn't the overlay
 
@@ -194,6 +195,128 @@ function animateWindowToRandomDisplayPosition(windowId, screen) {
   step();
 }
 
+const MouseGrabBehaviors = {
+  RANDOM: "RANDOM",
+  CIRCLE: "CIRCLE",
+  CORNER: "CORNER",
+};
+
+function ghostMouseGrab(
+  moveFn,
+  durationMs = 3000,
+  pullDistance = 100,
+  targetX,
+  targetY,
+  corner = null,
+  behavior = null
+) {
+  const start = Date.now();
+  let pos = robot.getMousePos(); // current position
+
+  // Pick mouse behavior randomly if not provided
+  const MouseBehavior =
+    behavior ||
+    [
+      MouseGrabBehaviors.CIRCLE,
+      MouseGrabBehaviors.RANDOM,
+      MouseGrabBehaviors.CORNER,
+    ][Math.floor(Math.random() * 3)];
+
+  let angle = 0; // for circle
+  const circleRadius = pullDistance || 10; // per-frame delta, fallback to 10 if undefined
+  const screen = robot.getScreenSize();
+
+  const interval = setInterval(() => {
+    const now = Date.now();
+    if (now - start >= durationMs) {
+      clearInterval(interval);
+      return;
+    }
+
+    let deltaX = 0;
+    let deltaY = 0;
+
+    switch (MouseBehavior) {
+      case MouseGrabBehaviors.CIRCLE: {
+        angle += 0.3; // speed
+        deltaX = Math.cos(angle) * circleRadius;
+        deltaY = Math.sin(angle) * circleRadius;
+        break;
+      }
+      case MouseGrabBehaviors.RANDOM: {
+        deltaX = (Math.random() - 0.5) * (pullDistance || 30);
+        deltaY = (Math.random() - 0.5) * (pullDistance || 30);
+        break;
+      }
+      case MouseGrabBehaviors.CORNER: {
+        let target;
+        // Determine target (corner or specific targetX/targetY)
+        if (
+          typeof targetX === "number" &&
+          typeof targetY === "number" &&
+          !corner
+        ) {
+          target = { x: targetX, y: targetY };
+        } else {
+          let tx = 0;
+          let ty = 0;
+          switch (corner) {
+            case "topLeft":
+              tx = 0;
+              ty = 0;
+              break;
+            case "topRight":
+              tx = screen.width - 1;
+              ty = 0;
+              break;
+            case "bottomLeft":
+              tx = 0;
+              ty = screen.height - 1;
+              break;
+            case "bottomRight":
+              tx = screen.width - 1;
+              ty = screen.height - 1;
+              break;
+            default:
+              // Fallback to lower right
+              tx = screen.width - 1;
+              ty = screen.height - 1;
+          }
+          target = { x: tx, y: ty };
+        }
+        // Move partway toward target
+        deltaX = (target.x - pos.x) * 0.3;
+        deltaY = (target.y - pos.y) * 0.3;
+        break;
+      }
+      default: {
+        throw new Error(
+          `[ghostMouseGrab] Unknown MouseGrabBehavior: ${behavior}`
+        );
+      }
+    }
+
+    // Update and clamp
+    pos.x += deltaX;
+    pos.y += deltaY;
+    pos.x = Math.max(0, Math.min(screen.width - 1, pos.x));
+    pos.y = Math.max(0, Math.min(screen.height - 1, pos.y));
+
+    robot.moveMouse(Math.round(pos.x), Math.round(pos.y));
+
+    if (moveFn) {
+      if (moveFn) moveFn({ x: pos.x, y: pos.y }); // pass current mouse pos
+    }
+    console.log(
+      "[ghostMouseGrab] Moving mouse to:",
+      Math.round(pos.x),
+      Math.round(pos.y),
+      deltaX,
+      deltaY
+    );
+  }, 8);
+}
+
 module.exports = {
   fetchWindows,
   minimizeWindowbyId,
@@ -201,4 +324,6 @@ module.exports = {
   getActiveWindow,
   getDesktopIdleDuration,
   animateWindowToRandomDisplayPosition,
+  ghostMouseGrab,
+  MouseGrabBehaviors,
 };

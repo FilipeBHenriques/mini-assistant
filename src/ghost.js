@@ -273,30 +273,15 @@ window.electronAPI.onSettingsSaved(async () => {
   await loadAndApplyGhost();
 });
 
-function switchMonitor() {
-  if (window.electronAPI?.switchMonitor) window.electronAPI.switchMonitor();
-}
-
-async function getRandomActiveWindowId() {
-  if (window.electronAPI?.getOpenWindows) {
-    try {
-      const windows = await window.electronAPI.getOpenWindows();
-      if (Array.isArray(windows) && windows.length > 0) {
-        const filtered = windows.filter(
-          (w) => !w.isGhostWindow && !/ghost/i.test(w.title || "")
-        );
-        const candidateList = filtered.length > 0 ? filtered : windows;
-        return candidateList[Math.floor(Math.random() * candidateList.length)]
-          .id;
-      }
-      return null;
-    } catch (e) {
-      console.warn("Could not get open windows for random move:", e);
-      return null;
-    }
-  }
-  return null;
-}
+window.electronAPI.onGhostMove(({ x, y, speed = 20 }) => {
+  // Convert screen pixels to world space inside renderer
+  const worldBounds = getWorldBounds();
+  const ndcX = (x / window.innerWidth) * 2 - 1;
+  const ndcY = -(y / window.innerHeight) * 2 + 1;
+  const worldX = (ndcX * (worldBounds.xMax - worldBounds.xMin)) / 2;
+  const worldY = (ndcY * (worldBounds.yMax - worldBounds.yMin)) / 2;
+  moveGhostTo(worldX, worldY, speed);
+});
 
 function setGhostState(state) {
   if (GhostStates[state]) {
@@ -357,6 +342,7 @@ if (window.electronAPI?.onAutoGhostResponse) {
           getActiveWindow: () => window.electronAPI.getActiveWindow(),
           getWindows: () => window.electronAPI.getWindows(),
           setGhostMessage: window.setGhostMessage,
+          grabMouse: () => window.electronAPI.grabMouse(),
         });
       } catch (err) {
         console.warn("Failed to run ghost tool:", parsed.tool, err);
@@ -649,6 +635,7 @@ export function moveGhostTo(x, y, speed = genericMoveSpeed, callback) {
   genericMoveSpeed = speed;
   genericMoveCallback = callback;
 }
+
 function updateGenericMovement(delta) {
   if (!ghost || !genericTarget) return;
 
@@ -756,6 +743,26 @@ function moveToWindowCorner(window, corner, callback) {
     "dragged",
     currentAction
   );
+}
+
+function ghostMouseGrab(
+  durationMs = 3000,
+  pullDistance = 30,
+  targetX,
+  targetY,
+  corner = null,
+  behavior = null
+) {
+  if (window.electronAPI) {
+    window.electronAPI.grabMouse(
+      durationMs,
+      pullDistance,
+      targetX,
+      targetY,
+      corner,
+      behavior
+    );
+  }
 }
 
 // --- Animation loop ---

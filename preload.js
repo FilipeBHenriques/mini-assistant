@@ -38,4 +38,29 @@ contextBridge.exposeInMainWorld("electronAPI", {
   saveSettings: (settings) => ipcRenderer.invoke("save-settings", settings),
   getSettings: () => ipcRenderer.invoke("load-settings"),
   onSettingsSaved: (callback) => ipcRenderer.on("settings-saved", callback),
+  moveGhost: (x, y, speed = 2) => {
+    ipcRenderer.send("ghost-move", { x, y, speed });
+  },
+  onGhostMove: (callback) => {
+    ipcRenderer.on("ghost-move-coords", (event, coords) => {
+      callback(coords); // coords = { x, y, speed }
+    });
+  },
+  grabMouse: (
+    durationMs = 3000,
+    pullDistance = 30,
+    targetX = null,
+    targetY = null,
+    corner = null,
+    behavior = null
+  ) => {
+    ipcRenderer.send("ghost-grab-mouse", {
+      durationMs,
+      pullDistance,
+      targetX,
+      targetY,
+      corner,
+      behavior,
+    });
+  },
 });

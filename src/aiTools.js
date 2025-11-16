@@ -85,4 +85,31 @@ export const tools = {
       }
     },
   },
+  grabMouse: {
+    description:
+      "Have the ghost grab and move the user's mouse toward a target, or pull it around playfully.",
+    parameters: {
+      type: "object",
+      properties: {
+        durationMs: {
+          type: "integer",
+          description:
+            "Number of milliseconds to grab the mouse (default: 3000)",
+        },
+        pullDistance: {
+          type: "integer",
+          description: "How far to pull the mouse (default: 30 pixels)",
+        },
+      },
+      required: [],
+    },
+    run: async (args, ctx) => {
+      if (ctx.grabMouse) {
+        return await ctx.grabMouse(args);
+      } else {
+        console.warn("Mouse grab not available in this context");
+        return { success: false, error: "mouse grab not implemented in ctx" };
+      }
+    },
+  },
 };
