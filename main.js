@@ -34,8 +34,89 @@ const isDev = !app.isPackaged;
 let mainWindow;
 let tray = null;
 let currentDisplayIndex = 0;
-let lastActiveWindow = null; // Store the last active window that isn't the overlay
+let lastActiveWindow = null;
 let settingsWindow = null;
+
+let currentDisplay = null;
+
+function updateCurrentDisplay() {
+  const displays = screen.getAllDisplays();
+  if (displays[currentDisplayIndex]) {
+    currentDisplay = displays[currentDisplayIndex];
+  }
+}
+
+function getWindowDisplay(windowBounds) {
+  const displays = screen.getAllDisplays();
+
+  const centerX = windowBounds.x + windowBounds.width / 2;
+  const centerY = windowBounds.y + windowBounds.height / 2;
+
+  for (let i = 0; i < displays.length; i++) {
+    const display = displays[i];
+    const bounds = display.bounds;
+
+    if (
+      centerX >= bounds.x &&
+      centerX < bounds.x + bounds.width &&
+      centerY >= bounds.y &&
+      centerY < bounds.y + bounds.height
+    ) {
+      return { display, index: i };
+    }
+  }
+
+  return { display: screen.getPrimaryDisplay(), index: 0 };
+}
+
+function getPointDisplay(x, y) {
+  const displays = screen.getAllDisplays();
+
+  for (let i = 0; i < displays.length; i++) {
+    const display = displays[i];
+    const bounds = display.bounds;
+
+    if (
+      x >= bounds.x &&
+      x < bounds.x + bounds.width &&
+      y >= bounds.y &&
+      y < bounds.y + bounds.height
+    ) {
+      return { display, index: i };
+    }
+  }
+
+  return { display: screen.getPrimaryDisplay(), index: 0 };
+}
+
+ipcMain.handle("check-same-display-as-window", async (event, windowId) => {
+  const windows = await fetchWindows();
+  const targetWindow = windows.find((w) => w.id === windowId);
+
+  if (!targetWindow) return { same: false, targetDisplayIndex: null };
+
+  const windowDisplay = getWindowDisplay(targetWindow.bounds);
+  const isSame = windowDisplay.index === currentDisplayIndex;
+
+  return {
+    same: isSame,
+    targetDisplayIndex: windowDisplay.index,
+    ghostDisplayIndex: currentDisplayIndex,
+  };
+});
+
+ipcMain.handle("check-same-display-as-cursor", async () => {
+  const cursorPos = screen.getCursorScreenPoint();
+  const cursorDisplay = getPointDisplay(cursorPos.x, cursorPos.y);
+  const isSame = cursorDisplay.index === currentDisplayIndex;
+
+  return {
+    same: isSame,
+    targetDisplayIndex: cursorDisplay.index,
+    ghostDisplayIndex: currentDisplayIndex,
+    cursorPos,
+  };
+});
 
 function createTray() {
   tray = new Tray(path.join(__dirname, "public/logo192.png"));
@@ -163,6 +244,10 @@ function createWindowOnDisplay(displayIndex) {
       show: false,
     });
 
+    // Make it appear over fullscreen borderless windows IMPORTANT
+    mainWindow.setAlwaysOnTop(true, "screen-saver");
+    mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
     if (isDev) {
       mainWindow.loadURL("http://localhost:5173"); // Vite dev server
       mainWindow.webContents.openDevTools({ mode: "detach" });
@@ -172,7 +257,7 @@ function createWindowOnDisplay(displayIndex) {
 
     mainWindow.once("ready-to-show", () => {
       mainWindow.show();
-      // Enable selective click-through: most of window is click-through, but drag area works
+      // Enable selective click-through: most of window is click-through, but drag area works IMPORTANT
       mainWindow.setIgnoreMouseEvents(true, { forward: true });
     });
 
@@ -182,7 +267,12 @@ function createWindowOnDisplay(displayIndex) {
   }
 
   currentDisplayIndex = displayIndex;
+  updateCurrentDisplay(); // Add this line
 }
+
+ipcMain.on("move-ghost-to-display", (event, displayIndex) => {
+  moveToDisplay(displayIndex);
+});
 
 // Function to move window between displays
 function moveToDisplay(displayIndex) {
@@ -260,7 +350,7 @@ ipcMain.on("switch-monitor", () => {
   cycleDisplay();
 });
 
-// IPC listener for mouse grab
+// In main.js, update the IPC listener:
 ipcMain.on(
   "ghost-grab-mouse",
   (
@@ -272,8 +362,21 @@ ipcMain.on(
       targetY,
       corner = null,
       behavior = null,
+      displayIndex = null, // ✅ NEW: Pass the display index
     }
   ) => {
+    // ✅ Get the bounds of the target display
+    const displays = screen.getAllDisplays();
+    const targetDisplay =
+      displayIndex !== null
+        ? displays[displayIndex]
+        : displays[currentDisplayIndex];
+
+    if (!targetDisplay) {
+      console.warn("Invalid display for mouse grab");
+      return;
+    }
+
     ghostMouseGrab(
       (pos) => {
         event.sender.send("ghost-move-coords", {
@@ -286,7 +389,8 @@ ipcMain.on(
       targetX,
       targetY,
       corner,
-      behavior
+      behavior,
+      targetDisplay.bounds // ✅ Pass display bounds to ghostMouseGrab
     );
   }
 );

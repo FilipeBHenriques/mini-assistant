@@ -22,6 +22,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setClickThrough: (enable) => ipcRenderer.send("set-click-through", enable),
   askGhost: (prompt) => ipcRenderer.invoke("ask-ghost", prompt),
 
+  checkSameDisplayAsWindow: (windowId) =>
+    ipcRenderer.invoke("check-same-display-as-window", windowId),
+
+  checkSameDisplayAsCursor: () =>
+    ipcRenderer.invoke("check-same-display-as-cursor"),
+
+  moveGhostToDisplay: (displayIndex) =>
+    ipcRenderer.send("move-ghost-to-display", displayIndex),
+
   // Auto ghost response listener
   onAutoGhostResponse: (callback) => {
     ipcRenderer.on("auto-ghost-response", (event, ghostResponse) => {

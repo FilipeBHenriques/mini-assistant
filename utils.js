@@ -201,6 +201,7 @@ const MouseGrabBehaviors = {
   CORNER: "CORNER",
 };
 
+// ✅ Updated ghostMouseGrab - Only adds display bounds support
 function ghostMouseGrab(
   moveFn,
   durationMs = 3000,
@@ -208,7 +209,8 @@ function ghostMouseGrab(
   targetX,
   targetY,
   corner = null,
-  behavior = null
+  behavior = null,
+  displayBounds = null // ✅ NEW: Optional display bounds parameter
 ) {
   const start = Date.now();
   let pos = robot.getMousePos(); // current position
@@ -224,7 +226,15 @@ function ghostMouseGrab(
 
   let angle = 0; // for circle
   const circleRadius = pullDistance || 10; // per-frame delta, fallback to 10 if undefined
-  const screen = robot.getScreenSize();
+
+  // ✅ Use displayBounds if provided, otherwise use full screen
+  const screen = displayBounds || robot.getScreenSize();
+
+  // ✅ Calculate screen boundaries (works for both full screen and specific display)
+  const screenMinX = screen.x || 0;
+  const screenMinY = screen.y || 0;
+  const screenMaxX = screenMinX + (screen.width || screen.width);
+  const screenMaxY = screenMinY + (screen.height || screen.height);
 
   const interval = setInterval(() => {
     const now = Date.now();
@@ -262,25 +272,25 @@ function ghostMouseGrab(
           let ty = 0;
           switch (corner) {
             case "topLeft":
-              tx = 0;
-              ty = 0;
+              tx = screenMinX; // ✅ Use display min
+              ty = screenMinY;
               break;
             case "topRight":
-              tx = screen.width - 1;
-              ty = 0;
+              tx = screenMaxX - 1; // ✅ Use display max
+              ty = screenMinY;
               break;
             case "bottomLeft":
-              tx = 0;
-              ty = screen.height - 1;
+              tx = screenMinX;
+              ty = screenMaxY - 1;
               break;
             case "bottomRight":
-              tx = screen.width - 1;
-              ty = screen.height - 1;
+              tx = screenMaxX - 1;
+              ty = screenMaxY - 1;
               break;
             default:
               // Fallback to lower right
-              tx = screen.width - 1;
-              ty = screen.height - 1;
+              tx = screenMaxX - 1;
+              ty = screenMaxY - 1;
           }
           target = { x: tx, y: ty };
         }
@@ -299,13 +309,15 @@ function ghostMouseGrab(
     // Update and clamp
     pos.x += deltaX;
     pos.y += deltaY;
-    pos.x = Math.max(0, Math.min(screen.width - 1, pos.x));
-    pos.y = Math.max(0, Math.min(screen.height - 1, pos.y));
+
+    // ✅ Clamp to display boundaries instead of full screen
+    pos.x = Math.max(screenMinX, Math.min(screenMaxX - 1, pos.x));
+    pos.y = Math.max(screenMinY, Math.min(screenMaxY - 1, pos.y));
 
     robot.moveMouse(Math.round(pos.x), Math.round(pos.y));
 
     if (moveFn) {
-      if (moveFn) moveFn({ x: pos.x, y: pos.y }); // pass current mouse pos
+      moveFn({ x: pos.x, y: pos.y }); // pass current mouse pos
     }
     console.log(
       "[ghostMouseGrab] Moving mouse to:",

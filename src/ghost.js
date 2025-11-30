@@ -294,7 +294,7 @@ function setGhostState(state) {
 
 // --- Auto ghost response handler ---
 if (window.electronAPI?.onAutoGhostResponse) {
-  window.electronAPI.onAutoGhostResponse((ghostResponse) => {
+  window.electronAPI.onAutoGhostResponse(async (ghostResponse) => {
     console.log("👻 Received auto ghost response:", ghostResponse);
 
     let parsed;
@@ -313,6 +313,7 @@ if (window.electronAPI?.onAutoGhostResponse) {
     } else if (parsed.state) {
       setGhostState("Chill");
     }
+
     if (
       parsed.tool &&
       tools[parsed.tool] &&
@@ -321,11 +322,25 @@ if (window.electronAPI?.onAutoGhostResponse) {
       try {
         tools[parsed.tool].run(parsed.args || {}, {
           mainWindow: window.electronAPI,
+
           minimizeActiveWindow: async (id) => {
+            // ✅ Check if ghost needs to switch displays
+            const displayCheck =
+              await window.electronAPI.checkSameDisplayAsWindow(id);
+            if (!displayCheck.same) {
+              console.log(
+                `🔄 Moving ghost to display ${displayCheck.targetDisplayIndex}`
+              );
+              window.electronAPI.moveGhostToDisplay(
+                displayCheck.targetDisplayIndex
+              );
+              await new Promise((resolve) => setTimeout(resolve, 500));
+            }
+
+            // Original code continues
             const windows = await window.electronAPI.getWindows();
             const target = windows.find((w) => w.id === id);
             moveToWindowCorner(target, "topRight", () => {
-              // This callback runs when the ghost reaches the corner
               window.electronAPI.minimizeExternal(id);
             });
             currentAction = playClipForState(
@@ -336,9 +351,32 @@ if (window.electronAPI?.onAutoGhostResponse) {
               currentAction
             );
           },
-          maximizeRandomWindow: (id) => window.electronAPI.maximizeExternal(id),
-          smoothMoveActiveWindowToRandomPosition: (id, x, y) =>
-            window.electronAPI.moveExternal(id, x, y),
+          maximizeRandomWindow: async (id) => {
+            // ✅ Check display before maximizing
+            const displayCheck =
+              await window.electronAPI.checkSameDisplayAsWindow(id);
+            if (!displayCheck.same) {
+              window.electronAPI.moveGhostToDisplay(
+                displayCheck.targetDisplayIndex
+              );
+              await new Promise((resolve) => setTimeout(resolve, 500));
+            }
+            window.electronAPI.maximizeExternal(id);
+          },
+
+          smoothMoveActiveWindowToRandomPosition: async (id, x, y) => {
+            // ✅ Check display before moving window
+            const displayCheck =
+              await window.electronAPI.checkSameDisplayAsWindow(id);
+            if (!displayCheck.same) {
+              window.electronAPI.moveGhostToDisplay(
+                displayCheck.targetDisplayIndex
+              );
+              await new Promise((resolve) => setTimeout(resolve, 500));
+            }
+            window.electronAPI.moveExternal(id, x, y);
+          },
+
           getActiveWindow: () => window.electronAPI.getActiveWindow(),
           getWindows: () => window.electronAPI.getWindows(),
           setGhostMessage: window.setGhostMessage,
@@ -743,26 +781,6 @@ function moveToWindowCorner(window, corner, callback) {
     "dragged",
     currentAction
   );
-}
-
-function ghostMouseGrab(
-  durationMs = 3000,
-  pullDistance = 30,
-  targetX,
-  targetY,
-  corner = null,
-  behavior = null
-) {
-  if (window.electronAPI) {
-    window.electronAPI.grabMouse(
-      durationMs,
-      pullDistance,
-      targetX,
-      targetY,
-      corner,
-      behavior
-    );
-  }
 }
 
 // --- Animation loop ---

@@ -8,14 +8,15 @@
     "dev:main": "wait-on http://localhost:5173 && electron .",
     "dev": "concurrently -k \"yarn dev:renderer\" \"yarn dev:main\"",
     "build": "vite build",
-    "start": "electron ."
+    "start": "electron .",
+    "start-app": "start cmd /k \"ollama serve\" && start cmd /k \"yarn dev\""
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^24.3.0",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
-    "concurrently": "^9.2.0",
+    "concurrently": "^9.2.1",
     "electron": "^37.3.1",
     "electron-rebuild": "^3.2.9",
     "typescript": "^5.9.2",
@@ -23,6 +24,7 @@
     "wait-on": "^8.0.4"
   },
   "dependencies": {
+    "@hurdlegroup/robotjs": "^0.12.3",
     "@langchain/core": "^1.0.3",
     "@langchain/ollama": "^1.0.0",
     "active-win": "^9.0.0",

@@ -1,3 +1,28 @@
+// Helper function to ensure ghost is on correct display
+async function ensureGhostOnSameDisplay(ctx, targetType, targetId = null) {
+  let displayCheck;
+
+  if (targetType === "cursor") {
+    displayCheck = await ctx.mainWindow.checkSameDisplayAsCursor();
+  } else if (targetType === "window" && targetId) {
+    displayCheck = await ctx.mainWindow.checkSameDisplayAsWindow(targetId);
+  } else {
+    console.warn("Invalid targetType or missing targetId");
+    return false;
+  }
+
+  if (!displayCheck.same) {
+    console.log(
+      `🔄 Moving ghost to display ${displayCheck.targetDisplayIndex}`
+    );
+    ctx.mainWindow.moveGhostToDisplay(displayCheck.targetDisplayIndex);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return true; // Ghost moved
+  }
+
+  return false; // Already on same display
+}
+
 export const tools = {
   say: {
     description:
@@ -16,10 +41,11 @@ export const tools = {
     description: "Minimize the currently active window.",
     parameters: { type: "object", properties: {}, required: [] },
     run: async (_args, ctx) => {
-      // Ask the main process for the currently active window
       if (ctx.getActiveWindow && ctx.minimizeActiveWindow) {
         const activeWindow = await ctx.getActiveWindow();
         if (activeWindow && activeWindow.id) {
+          // ✅ Use generic function
+          await ensureGhostOnSameDisplay(ctx, "window", activeWindow.id);
           ctx.minimizeActiveWindow(activeWindow.id);
         } else {
           console.warn("No active window to minimize");
@@ -37,6 +63,8 @@ export const tools = {
         if (windows && windows.length > 0) {
           const randomWindow =
             windows[Math.floor(Math.random() * windows.length)];
+          // ✅ Use generic function
+          await ensureGhostOnSameDisplay(ctx, "window", randomWindow.id);
           ctx.maximizeRandomWindow(randomWindow.id);
         } else {
           console.warn("No windows available to maximize");
@@ -57,9 +85,9 @@ export const tools = {
       if (ctx.getActiveWindow && ctx.smoothMoveActiveWindowToRandomPosition) {
         const activeWindow = await ctx.getActiveWindow();
         if (activeWindow && activeWindow.id && activeWindow.bounds) {
+          await ensureGhostOnSameDisplay(ctx, "window", activeWindow.id);
           const { width, height } = activeWindow.bounds;
           const { x: dx, y: dy, width: dw, height: dh } = activeWindow.bounds;
-          // Calculate random position that stays within screen bounds
           const maxX = dw - width;
           const maxY = dh - height;
           const randX = dx + Math.floor(Math.random() * (maxX + 1));
@@ -85,6 +113,7 @@ export const tools = {
       }
     },
   },
+
   grabMouse: {
     description:
       "Have the ghost grab and move the user's mouse toward a target, or pull it around playfully.",
@@ -105,7 +134,14 @@ export const tools = {
     },
     run: async (args, ctx) => {
       if (ctx.grabMouse) {
-        return await ctx.grabMouse(args);
+        // Check display and move ghost
+        const displayCheck = await ensureGhostOnSameDisplay(ctx, "cursor");
+
+        // ✅ Pass the display index to grabMouse
+        return await ctx.grabMouse({
+          ...args,
+          displayIndex: displayCheck ? displayCheck.targetDisplayIndex : null,
+        });
       } else {
         console.warn("Mouse grab not available in this context");
         return { success: false, error: "mouse grab not implemented in ctx" };
