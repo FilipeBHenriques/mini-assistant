@@ -498,7 +498,6 @@ slider.addEventListener("input", () => {
 // Set initial label value (since "input" doesn't fire on page load)
 valueLabel.textContent = slider.value;
 // Also, emit the initial event in case the renderer wants to read it up front
-
 async function loadModelFromUrl(url) {
   if (!url) {
     updateSelectsWithError("No model source selected");
@@ -508,17 +507,40 @@ async function loadModelFromUrl(url) {
   disposeActiveModel();
 
   return new Promise((resolve, reject) => {
-    loader.load(
+    // Create a custom loading manager to prevent THREE.js from mangling the URL
+    const manager = new THREE.LoadingManager();
+    manager.setURLModifier((url) => {
+      console.log("THREE.js wants to load:", url);
+
+      // If it's already a local-file URL, fix it
+      if (url.startsWith("local-file://")) {
+        let fixed = url.replace("local-file://", "local-file:///");
+
+        // Fix drive letter case (local-file://c/Users -> local-file:///C:/Users)
+        fixed = fixed.replace(
+          /^local-file:\/\/\/([a-z])\//i,
+          (match, letter) => {
+            return `local-file:///${letter.toUpperCase()}:/`;
+          }
+        );
+
+        console.log("Fixed URL:", fixed);
+        return fixed;
+      }
+
+      return url;
+    });
+
+    const loaderWithManager = new GLTFLoader(manager);
+
+    loaderWithManager.load(
       url,
       (gltf) => {
         try {
-          // Only render one model at a time: disposeActiveModel ensures this
-
           activeModel = gltf.scene;
           activeModel.position.set(0, 0, 0);
           scene.add(activeModel);
 
-          // Compute center and rescale using slider
           const box = new THREE.Box3().setFromObject(activeModel);
           const size = new THREE.Vector3();
           const center = new THREE.Vector3();
@@ -527,11 +549,9 @@ async function loadModelFromUrl(url) {
 
           activeModel.position.sub(center);
 
-          // track the original maxAxis for slider-based scaling
           modelOriginalMaxAxis = Math.max(size.x, size.y, size.z, 0.0001);
 
-          // scale based on slider
-          const desiredScale = slider.value; // use slider.value as size
+          const desiredScale = slider.value;
           const scale = desiredScale / modelOriginalMaxAxis;
           activeModel.scale.setScalar(scale);
 
@@ -627,9 +647,23 @@ async function handleImportModelClick() {
     return;
   }
   try {
-    const result = await electronAPI.selectModelFile();
-    if (result) {
-      settings = normalizeConfig(result);
+    const filePath = await electronAPI.selectModelFile();
+    if (filePath) {
+      // Construct the proper settings object structure
+      settings.model = {
+        type: "custom",
+        path: filePath,
+        id: "", // Clear any builtin ID
+        size: settings.model.size || 50, // Preserve existing size
+      };
+
+      console.log("Updated settings:", settings);
+
+      // Persist to localStorage and Electron
+      persistLocally();
+      await persistModelSelection();
+
+      // Update UI and load the model
       populateModelOptions();
       await refreshModel();
     }

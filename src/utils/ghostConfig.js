@@ -27,6 +27,7 @@ export function createDefaultConfig() {
 }
 
 export function normalizeConfig(raw) {
+  console.log("normalizeConfig", raw);
   if (!raw || typeof raw !== "object") {
     return createDefaultConfig();
   }

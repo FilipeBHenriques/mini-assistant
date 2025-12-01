@@ -47,6 +47,23 @@ contextBridge.exposeInMainWorld("electronAPI", {
   saveSettings: (settings) => ipcRenderer.invoke("save-settings", settings),
   getSettings: () => ipcRenderer.invoke("load-settings"),
   onSettingsSaved: (callback) => ipcRenderer.on("settings-saved", callback),
+  selectModelFile: () => ipcRenderer.invoke("select-model-file"),
+  pathToFileURL: (filePath) => {
+    if (!filePath) return null;
+
+    // Normalize path separators to forward slashes
+    let normalizedPath = filePath.replace(/\\/g, "/");
+
+    // Ensure we have the drive letter colon (C: not C/)
+    // Windows absolute paths should be like: C:/Users/...
+    if (normalizedPath.match(/^[a-zA-Z]\//)) {
+      normalizedPath = normalizedPath.charAt(0) + ":" + normalizedPath.slice(1);
+    }
+
+    // For Windows, we need: local-file:///C:/Users/...
+    // For Unix, we need: local-file:///home/...
+    return `local-file:///${normalizedPath}`;
+  },
   moveGhost: (x, y, speed = 2) => {
     ipcRenderer.send("ghost-move", { x, y, speed });
   },

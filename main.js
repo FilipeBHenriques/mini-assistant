@@ -6,7 +6,8 @@ const {
   dialog,
   Tray,
   Menu,
-  powerMonitor,
+  protocol,
+  net,
 } = require("electron");
 const {
   fetchWindows,
@@ -28,6 +29,19 @@ const ollama = new OpenAI({
 });
 
 const path = require("path");
+
+// Register the scheme as privileged BEFORE app is ready
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "local-file",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
+]);
 
 const isDev = !app.isPackaged;
 
@@ -323,6 +337,22 @@ const SETTINGS_FILE = path.join(userDataPath, "ghost-settings.json");
 
 ipcMain.handle("save-settings", async (event, settings) => {
   try {
+    // Convert custom model path to local-file:// URL before saving
+    if (settings?.model?.type === "custom" && settings.model.path) {
+      // Only convert if it's not already a local-file:// URL
+      if (!settings.model.path.startsWith("local-file://")) {
+        let normalizedPath = settings.model.path.replace(/\\/g, "/");
+
+        // Ensure drive letter has colon (C: not C/)
+        if (normalizedPath.match(/^[a-zA-Z]\//)) {
+          normalizedPath =
+            normalizedPath.charAt(0) + ":" + normalizedPath.slice(1);
+        }
+
+        settings.model.path = `local-file:///${normalizedPath}`;
+      }
+    }
+
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
     BrowserWindow.getAllWindows().forEach((win) => {
       win.webContents.send("settings-saved");
@@ -343,6 +373,24 @@ ipcMain.handle("load-settings", async () => {
     console.error("Failed to load settings:", err);
     return null;
   }
+});
+
+// Add the select-model-file handler
+ipcMain.handle("select-model-file", async () => {
+  const result = await dialog.showOpenDialog({
+    title: "Select 3D Model",
+    filters: [
+      { name: "3D Models", extensions: ["glb", "gltf"] },
+      { name: "All Files", extensions: ["*"] },
+    ],
+    properties: ["openFile"],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  return result.filePaths[0];
 });
 
 // Set up IPC listeners
@@ -396,6 +444,24 @@ ipcMain.on(
 );
 
 app.whenReady().then(() => {
+  protocol.handle("local-file", (request) => {
+    let filePath = request.url.replace("local-file://", "");
+
+    // Remove leading slashes
+    filePath = filePath.replace(/^\/+/, "");
+
+    // Fix Windows drive letter (c/Users -> C:/Users)
+    if (filePath.match(/^[a-zA-Z]\//)) {
+      filePath = filePath.charAt(0).toUpperCase() + ":" + filePath.slice(1);
+    }
+
+    filePath = decodeURIComponent(filePath);
+
+    console.log("Protocol handler loading:", filePath);
+
+    // Return the file using net.fetch with proper file:// URL
+    return net.fetch(`file:///${filePath}`);
+  });
   createWindow();
   createTray();
 

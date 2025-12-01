@@ -44,7 +44,6 @@ export const tools = {
       if (ctx.getActiveWindow && ctx.minimizeActiveWindow) {
         const activeWindow = await ctx.getActiveWindow();
         if (activeWindow && activeWindow.id) {
-          // ✅ Use generic function
           await ensureGhostOnSameDisplay(ctx, "window", activeWindow.id);
           ctx.minimizeActiveWindow(activeWindow.id);
         } else {
@@ -63,7 +62,6 @@ export const tools = {
         if (windows && windows.length > 0) {
           const randomWindow =
             windows[Math.floor(Math.random() * windows.length)];
-          // ✅ Use generic function
           await ensureGhostOnSameDisplay(ctx, "window", randomWindow.id);
           ctx.maximizeRandomWindow(randomWindow.id);
         } else {
