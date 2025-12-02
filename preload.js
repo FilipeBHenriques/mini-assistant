@@ -89,4 +89,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       behavior,
     });
   },
+
+  launchApp: (exePath) => ipcRenderer.invoke("launch-app", exePath),
 });

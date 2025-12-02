@@ -21,6 +21,20 @@ const {
 const { tools } = require("../mini-assistant/src/aiTools.js");
 const fs = require("fs");
 
+const { exec } = require("child_process");
+const { getInstalledApps } = require("get-installed-apps");
+// Duplicate import of "open" removed. (Already imported above.)
+
+ipcMain.handle("launch-app", async (event, exePath) => {
+  return new Promise((resolve, reject) => {
+    const command = `start "" "${exePath}"`;
+    exec(command, (err) => {
+      if (err) reject(err);
+      else resolve("Launched!");
+    });
+  });
+});
+
 const OpenAI = require("openai");
 
 const ollama = new OpenAI({
