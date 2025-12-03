@@ -1,14 +1,17 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "module": "commonjs",
+    "module": "ESNext",
     "outDir": ".",
     "strict": true,
     "esModuleInterop": true,
     "lib": ["dom", "es2020"],
-    "moduleResolution": "node"
+    "moduleResolution": "node",
+    "jsx": "react-jsx",
+    "allowJs": true,
+    "checkJs": false
   },
-  "include": ["**/*.ts"],
+  "include": ["**/*.{ts,tsx,js,jsx}"],
 
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "dist"]
 }

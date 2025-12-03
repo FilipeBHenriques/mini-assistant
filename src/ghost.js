@@ -273,10 +273,10 @@ loadAndApplyGhost();
 const exePath =
   "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Risk of Rain 2\\Risk of Rain 2.exe";
 
-window.electronAPI
-  .launchApp(exePath)
-  .then((msg) => console.log(msg))
-  .catch((err) => console.error("Failed to launch:", err));
+// window.electronAPI
+//   .launchApp(exePath)
+//   .then((msg) => console.log(msg))
+//   .catch((err) => console.error("Failed to launch:", err));
 
 window.electronAPI.onSettingsSaved(async () => {
   await loadAndApplyGhost();
