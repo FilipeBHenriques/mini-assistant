@@ -35,6 +35,24 @@ ipcMain.handle("launch-app", async (event, exePath) => {
   });
 });
 
+ipcMain.handle("ask-ghost", async (event, prompt) => {
+  try {
+    console.log("Received ask-ghost prompt:", prompt);
+    const res = await ollama.chat.completions.create({
+      model: "mistral",
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const ghostResponse = res.choices?.[0]?.message?.content || "";
+    console.log("ask-ghost response:", ghostResponse);
+
+    return ghostResponse;
+  } catch (err) {
+    console.error("ask-ghost handler error:", err);
+    throw err;
+  }
+});
+
 const OpenAI = require("openai");
 
 const ollama = new OpenAI({
@@ -494,14 +512,6 @@ app.whenReady().then(() => {
     }
   })();
 
-  setInterval(async () => {
-    try {
-      const windows = await fetchWindows();
-    } catch (err) {
-      console.error("Failed to get open windows:", err);
-    }
-  }, 30000); // every 30 seconds
-
   // Auto-run ASJ ghost every 30 seconds
   setInterval(async () => {
     try {
@@ -589,7 +599,7 @@ app.whenReady().then(() => {
     } catch (err) {
       console.error("Auto ASJ ghost error:", err);
     }
-  }, 10000); // every 30 seconds
+  }, 1000000); // every 30 seconds
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -609,6 +619,17 @@ app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
     createTray();
+  }
+});
+
+// Allow renderer or other contexts to ask main to set the ghost message
+ipcMain.on("set-ghost-message", (event, msg) => {
+  try {
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send("auto-ghost-response", msg);
+    }
+  } catch (e) {
+    console.warn("Failed to forward ghost message:", e);
   }
 });
 

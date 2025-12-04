@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import ChatPopover from "./ChatPopover";
 
 export default function GhostApp() {
   useEffect(() => {
@@ -12,50 +13,51 @@ export default function GhostApp() {
   }, []);
 
   return (
-    <div style={{ width: "100%", height: "100%", margin: 0 }}>
+    <div
+      style={{ width: "100%", height: "100%", margin: 0, position: "relative" }}
+    >
       <div
-        id="debug"
         style={{
-          position: "fixed",
-          top: 10,
-          left: 10,
-          background: "rgba(0,0,0,0.6)",
-          color: "#fff",
-          font: "12px monospace",
-          padding: "6px 8px",
-          borderRadius: 6,
-          zIndex: 10,
+          position: "absolute",
+          top: 12,
+          left: 12,
+          padding: 8,
           pointerEvents: "auto",
+          zIndex: 10,
+          background: "transparent",
         }}
       >
-        pos: <span id="pos">0,0</span>
-        <br />
-        windows: <span id="NbWindows">0</span>
-        <br />
-        runningFN: <span id="debugFunction">---</span>
-        <br />
-        <b>Controls:</b>
-        <ul
-          style={{
-            margin: "4px 0 0 16px",
-            padding: 0,
-            fontSize: 12,
-            lineHeight: 1.4,
+        <ChatPopover
+          onOpenCommand={(arg) => {
+            console.log("/open", arg);
+            try {
+              (window as any).electronAPI?.launchApp?.(arg);
+            } catch (e) {
+              console.warn("Failed to run /open", e);
+            }
           }}
-        >
-          <li>
-            <b>Space</b>: Switch monitor
-          </li>
-          <li>
-            <b>M</b>: Minimize active window
-          </li>
-          <li>
-            <b>Arrows</b> or <b>WASD</b>: Move ghost
-          </li>
-          <li>
-            <b>P</b>: Change ghost state
-          </li>
-        </ul>
+          onMemeCommand={(arg) => {
+            console.log("/meme", arg);
+            try {
+              (window as any).electronAPI?.askGhost?.(`meme ${arg}`);
+            } catch (e) {
+              console.warn("Failed to run /meme", e);
+            }
+          }}
+          onAskCommand={(arg) => {
+            console.log("/ask", arg);
+            try {
+              window?.setGhostMessage?.("hmmm...");
+
+              const response = (window as any).electronAPI?.askGhost?.(arg);
+              response?.then((answer: string) => {
+                window.setGhostMessage(answer);
+              });
+            } catch (e) {
+              console.warn("Failed to run /ask", e);
+            }
+          }}
+        />
       </div>
 
       <div

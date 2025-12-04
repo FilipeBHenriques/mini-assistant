@@ -9,7 +9,11 @@
     "moduleResolution": "node",
     "jsx": "react-jsx",
     "allowJs": true,
-    "checkJs": false
+    "checkJs": false,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": ["**/*.{ts,tsx,js,jsx}"],
 

@@ -234,6 +234,7 @@ async function loadAndApplyGhost() {
         if (span) span.textContent = msg;
         ghostMessage.style.display = msg ? "" : "none";
       };
+
       window.setGhostMessage("");
 
       if (gltf.animations && gltf.animations.length) {
