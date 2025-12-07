@@ -229,10 +229,43 @@ async function loadAndApplyGhost() {
       messageObj.position.set(ghostHalfWidth + 0.2, ghostHalfHeight + 0.35, 0);
       ghost.add(messageObj);
 
-      window.setGhostMessage = (msg) => {
-        const span = ghostMessage.querySelector("#ghost-msg-txt");
-        if (span) span.textContent = msg;
-        ghostMessage.style.display = msg ? "" : "none";
+      window.setGhostMessage = (msg, imgSrc, durationMs = 5000) => {
+        const ghostMessageElement = document.getElementById("ghost-msg-txt");
+        if (!ghostMessageElement) return;
+
+        // Clear any existing timer
+        if (window.ghostMessageTimer) {
+          clearTimeout(window.ghostMessageTimer);
+          window.ghostMessageTimer = null;
+        }
+
+        // If no message, just clear it
+        if (!msg) {
+          ghostMessageElement.innerHTML = "";
+          return;
+        }
+
+        const iconUrl = imgSrc
+          ? window.electronAPI.pathToFileURL(imgSrc)
+          : null;
+
+        if (iconUrl) {
+          ghostMessageElement.innerHTML = `
+      <img src="${iconUrl}" alt="icon"
+           style="width:16px;height:16px;vertical-align:middle;margin-right:4px;">
+      ${msg}
+    `;
+        } else {
+          ghostMessageElement.textContent = msg;
+        }
+
+        // Set timer to clear message after duration (if duration > 0)
+        if (durationMs > 0) {
+          window.ghostMessageTimer = setTimeout(() => {
+            ghostMessageElement.innerHTML = "";
+            window.ghostMessageTimer = null;
+          }, durationMs);
+        }
       };
 
       window.setGhostMessage("");
@@ -270,17 +303,13 @@ async function loadAndApplyGhost() {
 
 loadAndApplyGhost();
 
-// In your renderer JS
-const exePath =
-  "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Risk of Rain 2\\Risk of Rain 2.exe";
-
-// window.electronAPI
-//   .launchApp(exePath)
-//   .then((msg) => console.log(msg))
-//   .catch((err) => console.error("Failed to launch:", err));
-
 window.electronAPI.onSettingsSaved(async () => {
   await loadAndApplyGhost();
+});
+
+// Add this after your other window.electronAPI listeners
+window.electronAPI.onSetGhostBubbleMessage(({ text, icon }) => {
+  window.setGhostMessage(text, icon);
 });
 
 window.electronAPI.onGhostMove(({ x, y, speed = 20 }) => {

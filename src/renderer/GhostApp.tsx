@@ -30,11 +30,15 @@ export default function GhostApp() {
         <ChatPopover
           onOpenCommand={(arg) => {
             console.log("/open", arg);
-            try {
-              (window as any).electronAPI?.launchApp?.(arg);
-            } catch (e) {
-              console.warn("Failed to run /open", e);
-            }
+            (async () => {
+              try {
+                const msg = await (window as any).electronAPI?.launchApp?.(arg);
+                window?.setGhostMessage?.(msg.message, msg.icon);
+              } catch (e) {
+                window?.setGhostMessage?.("No App Found...");
+                console.warn("Failed to run /open", e);
+              }
+            })();
           }}
           onMemeCommand={(arg) => {
             console.log("/meme", arg);

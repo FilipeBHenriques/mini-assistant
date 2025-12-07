@@ -89,6 +89,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
       behavior,
     });
   },
-
+  // In preload.js, add to contextBridge.exposeInMainWorld('electronAPI', { ... })
+  onSetGhostBubbleMessage: (callback) => {
+    ipcRenderer.on("set-ghost-bubble-message", (event, data) => callback(data));
+  },
   launchApp: (exePath) => ipcRenderer.invoke("launch-app", exePath),
 });

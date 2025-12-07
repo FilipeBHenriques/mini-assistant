@@ -20,19 +20,90 @@ const {
 } = require("./utils.js");
 const { tools } = require("../mini-assistant/src/aiTools.js");
 const fs = require("fs");
+const { search } = require("fast-fuzzy");
+const path = require("path");
 
 const { exec } = require("child_process");
 const { getInstalledApps } = require("get-installed-apps");
 // Duplicate import of "open" removed. (Already imported above.)
 
-ipcMain.handle("launch-app", async (event, exePath) => {
-  return new Promise((resolve, reject) => {
-    const command = `start "" "${exePath}"`;
-    exec(command, (err) => {
-      if (err) reject(err);
-      else resolve("Launched!");
+// --- Only fetch installed apps ONCE and cache them ---
+let installedApps = null;
+let installedAppsPromise = null;
+
+async function getInstalledAppsOnce() {
+  if (installedApps) return installedApps;
+  if (!installedAppsPromise) {
+    installedAppsPromise = getInstalledApps()
+      .then((apps) => {
+        installedApps = apps;
+        console.log(`✅ Cached ${apps.length} installed apps`);
+        return apps;
+      })
+      .catch((err) => {
+        console.error("Failed to fetch installed apps:", err);
+        installedAppsPromise = null; // Reset so it can retry
+        return [];
+      });
+  }
+  return installedAppsPromise;
+}
+
+ipcMain.handle("launch-app", async (event, msg) => {
+  try {
+    if (!installedApps) installedApps = await getInstalledAppsOnce();
+    const bestMatch = search(msg, installedApps, {
+      keySelector: (obj) => obj.appName,
+    })[0]; // first result is the closest
+
+    if (!bestMatch) {
+      throw new Error("App not found in installed apps: " + parsedName.name);
+    }
+    // Send "launching" message to ghost bubble
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send("set-ghost-bubble-message", {
+        text: `Launching ${bestMatch.appName}...`,
+        icon: bestMatch.DisplayIcon || null,
+      });
+    }
+
+    let chosenExePath = null;
+    const installDir = bestMatch.InstallLocation;
+    if (
+      installDir &&
+      fs.existsSync(installDir) &&
+      fs.lstatSync(installDir).isDirectory()
+    ) {
+      const exes = fs
+        .readdirSync(installDir)
+        .filter((f) => f.toLowerCase().endsWith(".exe"));
+      if (exes.length > 0) {
+        chosenExePath = path.join(installDir, exes[0]);
+      }
+    }
+    if (!chosenExePath && fs.existsSync(`${installDir}.exe`)) {
+      chosenExePath = `${installDir}.exe`;
+    }
+    if (!chosenExePath) {
+      throw new Error(`No .exe found for ${bestMatch.appName}`);
+    }
+    // Use "start" for Windows shell launching
+    await new Promise((resolve, reject) => {
+      const command = `start "" "${chosenExePath}"`;
+      exec(command, (err) => {
+        if (err) reject(err);
+        else resolve(`Launched: ${bestMatch.InstallLocation}`);
+      });
     });
-  });
+    // Return both message and icon path
+
+    return {
+      message: `Launched: ${bestMatch.appName}`,
+      icon: bestMatch.DisplayIcon || null, // use DisplayIcon from installed app
+    };
+  } catch (err) {
+    return Promise.reject(err);
+  }
 });
 
 ipcMain.handle("ask-ghost", async (event, prompt) => {
@@ -59,8 +130,6 @@ const ollama = new OpenAI({
   baseURL: "http://localhost:11434/v1",
   apiKey: "none",
 });
-
-const path = require("path");
 
 // Register the scheme as privileged BEFORE app is ready
 protocol.registerSchemesAsPrivileged([
@@ -496,6 +565,11 @@ app.whenReady().then(() => {
   });
   createWindow();
   createTray();
+
+  // ✅ Pre-fetch installed apps in the background
+  getInstalledAppsOnce().then(() => {
+    console.log("📦 Installed apps loaded and cached");
+  });
 
   // ✅ Immediately poll once
   (async () => {
