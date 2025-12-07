@@ -57,12 +57,12 @@ ipcMain.handle("launch-app", async (event, msg) => {
     })[0]; // first result is the closest
 
     if (!bestMatch) {
-      throw new Error("App not found in installed apps: " + parsedName.name);
+      throw new Error("App not found in installed apps: " + msg);
     }
     // Send "launching" message to ghost bubble
     if (mainWindow && mainWindow.webContents) {
       mainWindow.webContents.send("set-ghost-bubble-message", {
-        text: `Launching ${bestMatch.appName}...`,
+        text: `Launching `,
         icon: bestMatch.DisplayIcon || null,
       });
     }

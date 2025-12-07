@@ -49,6 +49,7 @@
     "get-windows": "^9.2.0",
     "langchain": "^1.0.3",
     "lucide-react": "^0.555.0",
+    "memes-api": "^1.0.4",
     "node-window-manager": "^2.2.4",
     "open": "^11.0.0",
     "openai": "^6.2.0",

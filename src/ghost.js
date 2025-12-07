@@ -90,11 +90,6 @@ function removeGhost() {
       ghostLabel.parentNode.removeChild(ghostLabel);
       ghostLabel = null;
     }
-    // Remove message if it exists
-    if (ghostMessage && ghostMessage.parentNode) {
-      ghostMessage.parentNode.removeChild(ghostMessage);
-      ghostMessage = null;
-    }
     mixer = null;
     walkAction = null;
     rehydratedAnimations = {};
@@ -192,82 +187,6 @@ async function loadAndApplyGhost() {
       labelObj.position.set(0, -ghostHalfHeight - 0.25, 0);
       ghost.add(labelObj);
 
-      // --- Message Bubble at top right ---
-      ghostMessage = document.createElement("div");
-      ghostMessage.textContent = "message";
-      ghostMessage.style.maxWidth = "240px";
-      ghostMessage.style.padding = "8px 16px";
-      ghostMessage.style.background = "rgba(255,255,255,0.94)";
-      ghostMessage.style.color = "#222";
-      ghostMessage.style.fontFamily = "sans-serif";
-      ghostMessage.style.fontSize = "15px";
-      ghostMessage.style.borderRadius = "18px";
-      ghostMessage.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)";
-      ghostMessage.style.border = "2px solid #4442";
-      ghostMessage.style.whiteSpace = "pre-line";
-      ghostMessage.style.textAlign = "left";
-      ghostMessage.style.pointerEvents = "none";
-      ghostMessage.style.position = "relative";
-      ghostMessage.style.marginTop = "-70px";
-      ghostMessage.style.marginRight = "0px";
-      ghostMessage.innerHTML =
-        '<span style="position:relative;" id="ghost-msg-txt"></span>';
-
-      const tail = document.createElement("div");
-      tail.style.position = "absolute";
-      tail.style.right = "14px";
-      tail.style.top = "100%";
-      tail.style.width = "0";
-      tail.style.height = "0";
-      tail.style.borderLeft = "8px solid transparent";
-      tail.style.borderRight = "8px solid transparent";
-      tail.style.borderTop = "12px solid rgba(255,255,255,0.94)";
-      tail.style.filter = "drop-shadow(0 1px 2px #aaa7)";
-      ghostMessage.appendChild(tail);
-
-      const messageObj = new CSS2DObject(ghostMessage);
-      messageObj.position.set(ghostHalfWidth + 0.2, ghostHalfHeight + 0.35, 0);
-      ghost.add(messageObj);
-
-      window.setGhostMessage = (msg, imgSrc, durationMs = 5000) => {
-        const ghostMessageElement = document.getElementById("ghost-msg-txt");
-        if (!ghostMessageElement) return;
-
-        // Clear any existing timer
-        if (window.ghostMessageTimer) {
-          clearTimeout(window.ghostMessageTimer);
-          window.ghostMessageTimer = null;
-        }
-
-        // If no message, just clear it
-        if (!msg) {
-          ghostMessageElement.innerHTML = "";
-          return;
-        }
-
-        const iconUrl = imgSrc
-          ? window.electronAPI.pathToFileURL(imgSrc)
-          : null;
-
-        if (iconUrl) {
-          ghostMessageElement.innerHTML = `
-      <img src="${iconUrl}" alt="icon"
-           style="width:16px;height:16px;vertical-align:middle;margin-right:4px;">
-      ${msg}
-    `;
-        } else {
-          ghostMessageElement.textContent = msg;
-        }
-
-        // Set timer to clear message after duration (if duration > 0)
-        if (durationMs > 0) {
-          window.ghostMessageTimer = setTimeout(() => {
-            ghostMessageElement.innerHTML = "";
-            window.ghostMessageTimer = null;
-          }, durationMs);
-        }
-      };
-
       window.setGhostMessage("");
 
       if (gltf.animations && gltf.animations.length) {
@@ -305,11 +224,6 @@ loadAndApplyGhost();
 
 window.electronAPI.onSettingsSaved(async () => {
   await loadAndApplyGhost();
-});
-
-// Add this after your other window.electronAPI listeners
-window.electronAPI.onSetGhostBubbleMessage(({ text, icon }) => {
-  window.setGhostMessage(text, icon);
 });
 
 window.electronAPI.onGhostMove(({ x, y, speed = 20 }) => {
@@ -821,6 +735,10 @@ function moveToWindowCorner(window, corner, callback) {
     currentAction
   );
 }
+// Add this after your other window.electronAPI listeners
+window.electronAPI.onSetGhostBubbleMessage(({ text, icon }) => {
+  window.setGhostMessage(text, icon);
+});
 
 // --- Animation loop ---
 function animate() {
