@@ -6,10 +6,11 @@
   "scripts": {
     "dev:renderer": "vite",
     "dev:main": "wait-on http://localhost:5173 && electron .",
-    "dev": "concurrently -k \"yarn dev:renderer\" \"yarn dev:main\"",
+    "dev": "concurrently -k \"npm run dev:renderer\" \"npm run dev:main\"",
     "build": "vite build",
     "start": "electron .",
-    "start-app": "start cmd /k \"ollama serve\" && start cmd /k \"yarn dev\""
+    "dev:full": "node ./scripts/start-with-ollama.js",
+    "start-app": "npm run dev:full"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^1.0.1",

@@ -11,6 +11,7 @@ export default function GhostApp() {
   const [showMemeViewer, setShowMemeViewer] = useState(false);
   const [nsfwMode, setNsfwMode] = useState(false);
   const animationFrameRef = useRef<number | null>(null);
+  const bubbleRef = useRef<HTMLDivElement | null>(null);
   const typingTimerRef = useRef<number | null>(null);
   const messageTimerRef = useRef<number | null>(null);
 
@@ -85,20 +86,78 @@ export default function GhostApp() {
     };
   }, []);
 
+  const runOpenCommand = async (arg: string) => {
+    console.log("/open", arg);
+    try {
+      const msg = await (window as any).electronAPI?.launchApp?.(arg);
+      if (msg && msg.message) {
+        (window as any).setGhostMessage?.(msg.message, msg.icon, 5000);
+        return msg;
+      }
+
+      (window as any).setGhostMessage?.("Launching...", null, 2000);
+      return null;
+    } catch (e) {
+      console.warn("Failed to run /open", e);
+      (window as any).setGhostMessage?.("No App Found...", null, 3000);
+      throw e;
+    }
+  };
+
+  const runMemeCommand = (arg: string) => {
+    console.log("/meme", arg);
+    const nsfw = arg?.toLowerCase().includes("--nsfw");
+    setNsfwMode(nsfw);
+    setShowMemeViewer(true);
+  };
+
+  const runAskCommand = async (arg: string) => {
+    console.log("/ask", arg);
+    try {
+      (window as any).setGhostMessage?.("Thinking...", null, 0);
+      const answer = await (window as any).electronAPI?.askGhost?.(arg);
+      if (answer) {
+        (window as any).setGhostMessage?.(answer, null, 10000);
+      }
+      return answer;
+    } catch (e) {
+      console.warn("Failed to run /ask", e);
+      throw e;
+    }
+  };
+
   useEffect(() => {
     import("../ghost.js").catch((err) =>
       console.error("Failed to load legacy ghost module:", err)
     );
-  }, []);
 
-  useEffect(() => {
     const updateBubblePosition = () => {
       const ghostDragArea = document.getElementById("ghost-drag-area");
       if (ghostDragArea) {
         const rect = ghostDragArea.getBoundingClientRect();
+        const bubbleWidth = bubbleRef.current?.offsetWidth || 240;
+        const bubbleHeight = bubbleRef.current?.offsetHeight || 80;
+        const gutter = 16;
+        let nextX = rect.right + 20;
+        let nextY = rect.top - 80;
+
+        if (nextX + bubbleWidth + gutter > window.innerWidth) {
+          nextX = rect.left - bubbleWidth - 20;
+        }
+        if (nextX < gutter) {
+          nextX = Math.max(gutter, Math.min(rect.left, window.innerWidth - bubbleWidth - gutter));
+        }
+
+        if (nextY < gutter) {
+          nextY = rect.bottom + 20;
+        }
+        if (nextY + bubbleHeight + gutter > window.innerHeight) {
+          nextY = Math.max(gutter, window.innerHeight - bubbleHeight - gutter);
+        }
+
         setBubblePos({
-          x: rect.right + 20,
-          y: rect.top - 80,
+          x: nextX,
+          y: nextY,
         });
       }
       animationFrameRef.current = requestAnimationFrame(updateBubblePosition);
@@ -129,53 +188,9 @@ export default function GhostApp() {
         }}
       >
         <ChatPopover
-          onOpenCommand={(arg) => {
-            console.log("/open", arg);
-            (async () => {
-              try {
-                const msg = await (window as any).electronAPI?.launchApp?.(arg);
-                if (msg && msg.message) {
-                  (window as any).setGhostMessage?.(
-                    msg.message,
-                    msg.icon,
-                    5000
-                  );
-                } else {
-                  (window as any).setGhostMessage?.("Launching...", null, 2000);
-                }
-              } catch (e) {
-                console.warn("Failed to run /open", e);
-                (window as any).setGhostMessage?.(
-                  "No App Found...",
-                  null,
-                  3000
-                );
-              }
-            })();
-          }}
-          onMemeCommand={(arg) => {
-            console.log("/meme", arg);
-            // Check for --nsfw flag
-            const nsfw = arg?.toLowerCase().includes("--nsfw");
-            setNsfwMode(nsfw);
-            setShowMemeViewer(true);
-          }}
-          onAskCommand={(arg) => {
-            console.log("/ask", arg);
-            try {
-              (window as any).setGhostMessage?.("Thinking...", null, 0);
-
-              const response = (window as any).electronAPI?.askGhost?.(arg);
-              response?.then((answer: string) => {
-                console.log("Got response:", answer);
-                if (answer) {
-                  (window as any).setGhostMessage?.(answer, null, 10000);
-                }
-              });
-            } catch (e) {
-              console.warn("Failed to run /ask", e);
-            }
-          }}
+          onOpenCommand={(arg) => void runOpenCommand(arg)}
+          onMemeCommand={runMemeCommand}
+          onAskCommand={(arg) => void runAskCommand(arg)}
         />
       </div>
 
@@ -185,18 +200,19 @@ export default function GhostApp() {
           position: "fixed",
           width: 100,
           height: 100,
-          background: "rgba(255,0,0,0.2)",
-          border: "2px dashed rgba(255,0,0,0.6)",
+          background: "transparent",
+          border: "none",
           borderRadius: "50%",
           pointerEvents: "auto",
           cursor: "grab",
           zIndex: 5,
-          opacity: 0.3,
+          opacity: 1,
         }}
       />
 
       {displayedMessage && (
         <div
+          ref={bubbleRef}
           style={{
             position: "fixed",
             left: `${bubblePos.x}px`,
@@ -223,7 +239,6 @@ export default function GhostApp() {
           display: "block",
           width: "100%",
           height: "100%",
-          border: "3px solid red",
           pointerEvents: "none",
         }}
       />

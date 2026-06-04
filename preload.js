@@ -78,7 +78,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     targetX = null,
     targetY = null,
     corner = null,
-    behavior = null
+    behavior = null,
+    displayIndex = null
   ) => {
     ipcRenderer.send("ghost-grab-mouse", {
       durationMs,
@@ -87,6 +88,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       targetY,
       corner,
       behavior,
+      displayIndex,
     });
   },
   // In preload.js, add to contextBridge.exposeInMainWorld('electronAPI', { ... })

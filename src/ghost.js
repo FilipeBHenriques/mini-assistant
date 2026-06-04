@@ -1,9 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import {
-  CSS2DRenderer,
-  CSS2DObject,
-} from "three/examples/jsm/renderers/CSS2DRenderer.js";
+import { CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import {
   GHOST_SCALE,
   GHOST_MIN_FLING_SPEED,
@@ -71,9 +68,6 @@ let mixer = null;
 let walkAction = null;
 let rehydratedAnimations = {};
 
-let ghostLabel;
-let ghostMessage;
-let labelObj;
 let loader = new GLTFLoader();
 
 // Helper to unload previous ghost from scene
@@ -81,15 +75,6 @@ function removeGhost() {
   if (ghost) {
     scene.remove(ghost);
     ghost = null;
-    // Remove label object if it exists
-    if (labelObj && labelObj.parent) {
-      labelObj.parent.remove(labelObj);
-      labelObj = null;
-    }
-    if (ghostLabel && ghostLabel.parentNode) {
-      ghostLabel.parentNode.removeChild(ghostLabel);
-      ghostLabel = null;
-    }
     mixer = null;
     walkAction = null;
     rehydratedAnimations = {};
@@ -172,21 +157,6 @@ async function loadAndApplyGhost() {
       ghostHalfWidth = newSize.x / 2;
       ghostHalfHeight = newSize.y / 2;
 
-      // --- Bottom Label ---
-      ghostLabel = document.createElement("div");
-      ghostLabel.textContent = `State: ${ghostState}`;
-      ghostLabel.style.color = "white";
-      ghostLabel.style.fontFamily = "sans-serif";
-      ghostLabel.style.fontSize = "16px";
-      ghostLabel.style.textShadow = "0 0 5px black";
-      ghostLabel.style.padding = "2px 10px";
-      ghostLabel.style.background = "rgba(0,0,0,0.5)";
-      ghostLabel.style.borderRadius = "12px";
-
-      labelObj = new CSS2DObject(ghostLabel);
-      labelObj.position.set(0, -ghostHalfHeight - 0.25, 0);
-      ghost.add(labelObj);
-
       window.setGhostMessage("");
 
       if (gltf.animations && gltf.animations.length) {
@@ -226,6 +196,140 @@ window.electronAPI.onSettingsSaved(async () => {
   await loadAndApplyGhost();
 });
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function applyStateFromAction(state) {
+  if (!state) return;
+
+  if (state === "procrastinating") {
+    setGhostState("Angry");
+  } else if (state === "working") {
+    setGhostState("Chill");
+  } else if (state === "vibing") {
+    setGhostState("Sleeping");
+  } else {
+    setGhostState("Chill");
+  }
+}
+
+function buildGhostToolContext() {
+  return {
+    mainWindow: window.electronAPI,
+    minimizeActiveWindow: async (id) => {
+      const displayCheck = await window.electronAPI.checkSameDisplayAsWindow(id);
+      if (!displayCheck.same) {
+        window.electronAPI.moveGhostToDisplay(displayCheck.targetDisplayIndex);
+        await delay(500);
+      }
+
+      const windows = await window.electronAPI.getWindows();
+      const target = windows.find((w) => w.id === id);
+      if (target) {
+        moveToWindowCorner(target, "topRight", () => {
+          window.electronAPI.minimizeExternal(id);
+        });
+      } else {
+        window.electronAPI.minimizeExternal(id);
+      }
+
+      currentAction = playClipForState(
+        mixer,
+        rehydratedAnimations,
+        ghost?.animations,
+        "dragged",
+        currentAction
+      );
+    },
+    maximizeRandomWindow: async (id) => {
+      const displayCheck = await window.electronAPI.checkSameDisplayAsWindow(id);
+      if (!displayCheck.same) {
+        window.electronAPI.moveGhostToDisplay(displayCheck.targetDisplayIndex);
+        await delay(500);
+      }
+
+      window.electronAPI.maximizeExternal(id);
+    },
+    smoothMoveActiveWindowToRandomPosition: async (id, x, y) => {
+      const displayCheck = await window.electronAPI.checkSameDisplayAsWindow(id);
+      if (!displayCheck.same) {
+        window.electronAPI.moveGhostToDisplay(displayCheck.targetDisplayIndex);
+        await delay(500);
+      }
+
+      window.electronAPI.moveExternal(id, x, y);
+    },
+    getActiveWindow: () => window.electronAPI.getActiveWindow(),
+    getWindows: () => window.electronAPI.getWindows(),
+    setGhostMessage: window.setGhostMessage,
+    grabMouse: async ({
+      durationMs = 3000,
+      pullDistance = 30,
+      targetX = null,
+      targetY = null,
+      corner = null,
+      behavior = null,
+      displayIndex = null,
+    } = {}) => {
+      window.electronAPI.grabMouse(
+        durationMs,
+        pullDistance,
+        targetX,
+        targetY,
+        corner,
+        behavior,
+        displayIndex
+      );
+      return { success: true };
+    },
+  };
+}
+
+export async function executeGhostAction(action) {
+  if (!action) return { success: false, error: "Missing action" };
+
+  let parsed = action;
+  if (typeof action === "string") {
+    try {
+      parsed = JSON.parse(action);
+    } catch {
+      parsed = { state: "working", reasoning: action };
+    }
+  }
+
+  applyStateFromAction(parsed.state);
+
+  if (parsed.reasoning && !parsed.tool) {
+    window.setGhostMessage(parsed.reasoning, null, 6000);
+  }
+
+  if (
+    parsed.tool &&
+    tools[parsed.tool] &&
+    typeof tools[parsed.tool].run === "function"
+  ) {
+    try {
+      return await tools[parsed.tool].run(
+        parsed.args || {},
+        buildGhostToolContext()
+      );
+    } catch (err) {
+      console.warn("Failed to run ghost tool:", parsed.tool, err);
+      return { success: false, error: String(err) };
+    }
+  }
+
+  return { success: true, skipped: true };
+}
+
+if (window.electronAPI?.onAutoGhostResponse) {
+  window.electronAPI.onAutoGhostResponse(async (ghostResponse) => {
+    console.log("Received auto ghost response:", ghostResponse);
+    await executeGhostAction(ghostResponse);
+  });
+}
+
 window.electronAPI.onGhostMove(({ x, y, speed = 20 }) => {
   // Convert screen pixels to world space inside renderer
   const worldBounds = getWorldBounds();
@@ -239,110 +343,111 @@ window.electronAPI.onGhostMove(({ x, y, speed = 20 }) => {
 function setGhostState(state) {
   if (GhostStates[state]) {
     ghostState = GhostStates[state];
-    if (ghostLabel) ghostLabel.textContent = `AI: ${state}`;
   } else {
     console.warn(`Unknown ghost state: ${state}`);
   }
 }
 
-// --- Auto ghost response handler ---
-if (window.electronAPI?.onAutoGhostResponse) {
-  window.electronAPI.onAutoGhostResponse(async (ghostResponse) => {
-    console.log("👻 Received auto ghost response:", ghostResponse);
+// // --- Auto ghost response handler ---
+// if (window.electronAPI?.onAutoGhostResponse) {
+//   window.electronAPI.onAutoGhostResponse(async (ghostResponse) => {
+//     console.log("👻 Received auto ghost response:", ghostResponse);
 
-    let parsed;
-    try {
-      parsed = JSON.parse(ghostResponse);
-    } catch {
-      parsed = { state: "unknown", reasoning: ghostResponse };
-    }
+//     let parsed;
+//     try {
+//       parsed = JSON.parse(ghostResponse);
+//     } catch {
+//       parsed = { state: "unknown", reasoning: ghostResponse };
+//     }
 
-    if (parsed.state === "procrastinating") {
-      setGhostState("Angry");
-    } else if (parsed.state === "working") {
-      setGhostState("Chill");
-    } else if (parsed.state === "vibing") {
-      setGhostState("Sleeping");
-    } else if (parsed.state) {
-      setGhostState("Chill");
-    }
+//     if (parsed.state === "procrastinating") {
+//       setGhostState("Angry");
+//     } else if (parsed.state === "working") {
+//       setGhostState("Chill");
+//     } else if (parsed.state === "vibing") {
+//       setGhostState("Sleeping");
+//     } else if (parsed.state) {
+//       setGhostState("Chill");
+//     }
 
-    if (
-      parsed.tool &&
-      tools[parsed.tool] &&
-      typeof tools[parsed.tool].run === "function"
-    ) {
-      try {
-        tools[parsed.tool].run(parsed.args || {}, {
-          mainWindow: window.electronAPI,
+//     if (
+//       parsed.tool &&
+//       tools[parsed.tool] &&
+//       typeof tools[parsed.tool].run === "function"
+//     ) {
+//       try {
+//         tools[parsed.tool].run(parsed.args || {}, {
+//           mainWindow: window.electronAPI,
 
-          minimizeActiveWindow: async (id) => {
-            // ✅ Check if ghost needs to switch displays
-            const displayCheck =
-              await window.electronAPI.checkSameDisplayAsWindow(id);
-            if (!displayCheck.same) {
-              console.log(
-                `🔄 Moving ghost to display ${displayCheck.targetDisplayIndex}`
-              );
-              window.electronAPI.moveGhostToDisplay(
-                displayCheck.targetDisplayIndex
-              );
-              await new Promise((resolve) => setTimeout(resolve, 500));
-            }
+//           minimizeActiveWindow: async (id) => {
+//             // ✅ Check if ghost needs to switch displays
+//             const displayCheck =
+//               await window.electronAPI.checkSameDisplayAsWindow(id);
+//             if (!displayCheck.same) {
+//               console.log(
+//                 `🔄 Moving ghost to display ${displayCheck.targetDisplayIndex}`
+//               );
+//               window.electronAPI.moveGhostToDisplay(
+//                 displayCheck.targetDisplayIndex
+//               );
+//               await new Promise((resolve) => setTimeout(resolve, 500));
+//             }
 
-            // Original code continues
-            const windows = await window.electronAPI.getWindows();
-            const target = windows.find((w) => w.id === id);
-            moveToWindowCorner(target, "topRight", () => {
-              window.electronAPI.minimizeExternal(id);
-            });
-            currentAction = playClipForState(
-              mixer,
-              rehydratedAnimations,
-              ghost.animations,
-              "dragged",
-              currentAction
-            );
-          },
-          maximizeRandomWindow: async (id) => {
-            // ✅ Check display before maximizing
-            const displayCheck =
-              await window.electronAPI.checkSameDisplayAsWindow(id);
-            if (!displayCheck.same) {
-              window.electronAPI.moveGhostToDisplay(
-                displayCheck.targetDisplayIndex
-              );
-              await new Promise((resolve) => setTimeout(resolve, 500));
-            }
-            window.electronAPI.maximizeExternal(id);
-          },
+//             // Original code continues
+//             const windows = await window.electronAPI.getWindows();
+//             const target = windows.find((w) => w.id === id);
+//             moveToWindowCorner(target, "topRight", () => {
+//               window.electronAPI.minimizeExternal(id);
+//             });
+//             currentAction = playClipForState(
+//               mixer,
+//               rehydratedAnimations,
+//               ghost.animations,
+//               "dragged",
+//               currentAction
+//             );
+//           },
+//           maximizeRandomWindow: async (id) => {
+//             // ✅ Check display before maximizing
+//             const displayCheck =
+//               await window.electronAPI.checkSameDisplayAsWindow(id);
+//             if (!displayCheck.same) {
+//               window.electronAPI.moveGhostToDisplay(
+//                 displayCheck.targetDisplayIndex
+//               );
+//               await new Promise((resolve) => setTimeout(resolve, 500));
+//             }
+//             window.electronAPI.maximizeExternal(id);
+//           },
 
-          smoothMoveActiveWindowToRandomPosition: async (id, x, y) => {
-            // ✅ Check display before moving window
-            const displayCheck =
-              await window.electronAPI.checkSameDisplayAsWindow(id);
-            if (!displayCheck.same) {
-              window.electronAPI.moveGhostToDisplay(
-                displayCheck.targetDisplayIndex
-              );
-              await new Promise((resolve) => setTimeout(resolve, 500));
-            }
-            window.electronAPI.moveExternal(id, x, y);
-          },
+//           smoothMoveActiveWindowToRandomPosition: async (id, x, y) => {
+//             // ✅ Check display before moving window
+//             const displayCheck =
+//               await window.electronAPI.checkSameDisplayAsWindow(id);
+//             if (!displayCheck.same) {
+//               window.electronAPI.moveGhostToDisplay(
+//                 displayCheck.targetDisplayIndex
+//               );
+//               await new Promise((resolve) => setTimeout(resolve, 500));
+//             }
+//             window.electronAPI.moveExternal(id, x, y);
+//           },
 
-          getActiveWindow: () => window.electronAPI.getActiveWindow(),
-          getWindows: () => window.electronAPI.getWindows(),
-          setGhostMessage: window.setGhostMessage,
-          grabMouse: () => window.electronAPI.grabMouse(),
-        });
-      } catch (err) {
-        console.warn("Failed to run ghost tool:", parsed.tool, err);
-      }
-    } else {
-      console.log("Ghost tool not found or not runnable:", parsed.tool);
-    }
-  });
-}
+//           getActiveWindow: () => window.electronAPI.getActiveWindow(),
+//           getWindows: () => window.electronAPI.getWindows(),
+//           setGhostMessage: window.setGhostMessage,
+//           grabMouse: () => window.electronAPI.grabMouse(),
+//         });
+//       } catch (err) {
+//         console.warn("Failed to run ghost tool:", parsed.tool, err);
+//       }
+//     } else {
+//       console.log("Ghost tool not found or not runnable:", parsed.tool);
+//     }
+//   });
+// }
+
+// --- Debugging: run all tools repeatedly ---
 
 if (window.electronAPI?.onResizeWindow) {
   window.electronAPI.onResizeWindow(({ width, height }) => {

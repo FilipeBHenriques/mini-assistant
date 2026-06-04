@@ -8,6 +8,7 @@ const {
   Menu,
   protocol,
   net,
+  shell,
 } = require("electron");
 const {
   fetchWindows,
@@ -23,7 +24,7 @@ const fs = require("fs");
 const { search } = require("fast-fuzzy");
 const path = require("path");
 
-const { exec } = require("child_process");
+const { exec, spawn } = require("child_process");
 const { getInstalledApps } = require("get-installed-apps");
 // Duplicate import of "open" removed. (Already imported above.)
 
@@ -49,12 +50,179 @@ async function getInstalledAppsOnce() {
   return installedAppsPromise;
 }
 
+function normalizeAppText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+const APP_ALIASES = {
+  steam: ["steam"],
+  chrome: ["chrome", "google chrome"],
+  "league of legends": [
+    "league of legends",
+    "league client",
+    "leagueclient",
+    "riot client",
+    "league_of_legends",
+  ],
+};
+
+function buildAppSearchText(appInfo) {
+  const installLocation = appInfo.InstallLocation || "";
+  const displayIcon = appInfo.DisplayIcon || "";
+  const exeName = installLocation ? path.basename(installLocation) : "";
+  const iconName = displayIcon ? path.basename(displayIcon) : "";
+
+  return normalizeAppText(
+    [
+      appInfo.appName,
+      exeName,
+      iconName,
+      installLocation,
+      displayIcon,
+      appInfo.Executable || "",
+    ].join(" ")
+  );
+}
+
+function findBestInstalledAppMatch(query, apps) {
+  const normalizedQuery = normalizeAppText(query);
+  if (!normalizedQuery) return null;
+
+  const exactAppNameMatch = apps.find(
+    (appInfo) => normalizeAppText(appInfo.appName) === normalizedQuery
+  );
+  if (exactAppNameMatch) return exactAppNameMatch;
+
+  const aliases = APP_ALIASES[normalizedQuery] || [normalizedQuery];
+  const aliasAppNameMatch = apps.find((appInfo) =>
+    aliases.includes(normalizeAppText(appInfo.appName))
+  );
+  if (aliasAppNameMatch) return aliasAppNameMatch;
+
+  const containsMatch = apps
+    .map((appInfo) => ({
+      appInfo,
+      appName: normalizeAppText(appInfo.appName),
+      searchText: buildAppSearchText(appInfo),
+    }))
+    .filter(({ appName, searchText }) =>
+      aliases.some((alias) => appName.includes(alias) || searchText.includes(alias))
+    )
+    .sort((left, right) => left.appName.length - right.appName.length)[0];
+  if (containsMatch) return containsMatch.appInfo;
+
+  const rankedMatches = search(normalizedQuery, apps, {
+    keySelector: (appInfo) => buildAppSearchText(appInfo),
+  });
+
+  return rankedMatches[0] || null;
+}
+
+function collectCandidateExePaths(appInfo) {
+  const candidates = [];
+  const installDir = appInfo.InstallLocation;
+
+  if (
+    installDir &&
+    fs.existsSync(installDir) &&
+    fs.lstatSync(installDir).isDirectory()
+  ) {
+    const preferredExeNames = [
+      "leagueclient.exe",
+      "riotclientservices.exe",
+      `${path.basename(installDir)}.exe`.toLowerCase(),
+    ];
+
+    const exes = fs
+      .readdirSync(installDir)
+      .filter((fileName) => fileName.toLowerCase().endsWith(".exe"))
+      .sort((left, right) => {
+        const leftScore = preferredExeNames.findIndex(
+          (preferred) => left.toLowerCase() === preferred
+        );
+        const rightScore = preferredExeNames.findIndex(
+          (preferred) => right.toLowerCase() === preferred
+        );
+        const normalizedLeftScore = leftScore === -1 ? 999 : leftScore;
+        const normalizedRightScore = rightScore === -1 ? 999 : rightScore;
+        return normalizedLeftScore - normalizedRightScore;
+      });
+
+    for (const exeName of exes) {
+      candidates.push(path.join(installDir, exeName));
+    }
+  }
+
+  if (installDir && fs.existsSync(`${installDir}.exe`)) {
+    candidates.push(`${installDir}.exe`);
+  }
+
+  return [...new Set(candidates)];
+}
+
+async function launchExecutable(exePath) {
+  const cwd = path.dirname(exePath);
+
+  const attempts = [
+    () =>
+      new Promise((resolve, reject) => {
+        const child = spawn(exePath, [], {
+          cwd,
+          detached: true,
+          stdio: "ignore",
+          windowsHide: false,
+        });
+        child.on("error", reject);
+        child.unref();
+        resolve(true);
+      }),
+    () =>
+      new Promise((resolve, reject) => {
+        exec(
+          `powershell -NoProfile -Command "Start-Process -FilePath '${exePath.replace(/'/g, "''")}' -WorkingDirectory '${cwd.replace(/'/g, "''")}'"`,
+          { cwd },
+          (err) => {
+            if (err) reject(err);
+            else resolve(true);
+          }
+        );
+      }),
+    () =>
+      new Promise((resolve, reject) => {
+        exec(`cmd /c start "" "${exePath}"`, { cwd }, (err) => {
+          if (err) reject(err);
+          else resolve(true);
+        });
+      }),
+    async () => {
+      const openPathError = await shell.openPath(exePath);
+      if (openPathError) {
+        throw new Error(openPathError);
+      }
+      return true;
+    },
+  ];
+
+  let lastError = null;
+  for (const attempt of attempts) {
+    try {
+      await attempt();
+      return true;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error(`Failed to launch ${exePath}`);
+}
+
 ipcMain.handle("launch-app", async (event, msg) => {
   try {
     if (!installedApps) installedApps = await getInstalledAppsOnce();
-    const bestMatch = search(msg, installedApps, {
-      keySelector: (obj) => obj.appName,
-    })[0]; // first result is the closest
+    const bestMatch = findBestInstalledAppMatch(msg, installedApps);
 
     if (!bestMatch) {
       throw new Error("App not found in installed apps: " + msg);
@@ -67,35 +235,26 @@ ipcMain.handle("launch-app", async (event, msg) => {
       });
     }
 
-    let chosenExePath = null;
-    const installDir = bestMatch.InstallLocation;
-    if (
-      installDir &&
-      fs.existsSync(installDir) &&
-      fs.lstatSync(installDir).isDirectory()
-    ) {
-      const exes = fs
-        .readdirSync(installDir)
-        .filter((f) => f.toLowerCase().endsWith(".exe"));
-      if (exes.length > 0) {
-        chosenExePath = path.join(installDir, exes[0]);
-      }
-    }
-    if (!chosenExePath && fs.existsSync(`${installDir}.exe`)) {
-      chosenExePath = `${installDir}.exe`;
-    }
-    if (!chosenExePath) {
+    const candidateExePaths = collectCandidateExePaths(bestMatch);
+    if (candidateExePaths.length === 0) {
       throw new Error(`No .exe found for ${bestMatch.appName}`);
     }
-    // Use "start" for Windows shell launching
-    await new Promise((resolve, reject) => {
-      const command = `start "" "${chosenExePath}"`;
-      exec(command, (err) => {
-        if (err) reject(err);
-        else resolve(`Launched: ${bestMatch.InstallLocation}`);
-      });
-    });
-    // Return both message and icon path
+
+    let launched = false;
+    let lastLaunchError = null;
+    for (const exePath of candidateExePaths) {
+      try {
+        await launchExecutable(exePath);
+        launched = true;
+        break;
+      } catch (err) {
+        lastLaunchError = err;
+      }
+    }
+
+    if (!launched) {
+      throw lastLaunchError || new Error(`Failed to launch ${bestMatch.appName}`);
+    }
 
     return {
       message: `Launched: ${bestMatch.appName}`,
@@ -315,8 +474,8 @@ function createWindow() {
 
   console.log(`Found ${displays.length} displays`);
 
-  // Start with the first display
-  createWindowOnDisplay(1);
+  // Prefer the secondary display when available, otherwise use the primary display.
+  createWindowOnDisplay(displays.length > 1 ? 1 : 0);
 }
 
 function createWindowOnDisplay(displayIndex) {
@@ -324,7 +483,7 @@ function createWindowOnDisplay(displayIndex) {
   if (!displays[displayIndex]) return;
 
   const display = displays[displayIndex];
-  const { x, y, width, height, inne } = display.workArea; // or workAreaSize
+  const { x, y, width, height } = display.workArea;
   const scale = display.scaleFactor;
 
   console.log(
@@ -577,9 +736,18 @@ app.whenReady().then(() => {
       const processes = await fetchWindows();
       // Update NbWindows in renderer debug panel
       if (mainWindow && mainWindow.webContents) {
-        mainWindow.webContents.executeJavaScript(
-          `document.getElementById("NbWindows").textContent = "${processes.length}";`
-        );
+        mainWindow.webContents
+          .executeJavaScript(
+            `(() => {
+              const nbWindows = document.getElementById("NbWindows");
+              if (nbWindows) {
+                nbWindows.textContent = "${processes.length}";
+              }
+            })();`
+          )
+          .catch((err) => {
+            console.warn("Skipping removed NbWindows debug element:", err);
+          });
       }
     } catch (err) {
       console.error("Failed to get processes:", err);
@@ -673,7 +841,7 @@ app.whenReady().then(() => {
     } catch (err) {
       console.error("Auto ASJ ghost error:", err);
     }
-  }, 1000000); // every 30 seconds
+  }, 20000); // every 30 seconds
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

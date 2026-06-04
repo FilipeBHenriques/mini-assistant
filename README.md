@@ -1,9 +1,10 @@
-# Getting Started with Create React App
+# ProcAIstination App
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+The Electron app lives in this folder. For the full project overview, setup notes, and demo flow, start with the repository README in the project root.
 
-## Available Scripts
+Quick commands:
 
-In the project directory, you can run:
-
-### `yarn dev`
+```bash
+npm install
+npm run start-app
+```
